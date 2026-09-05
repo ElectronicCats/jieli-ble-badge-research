@@ -1,0 +1,31 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ── Tooling / caches ────────────────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.lock
+
+# ── Heavy / machine-specific toolchains (fetched by setup scripts) ───────────
+tools/jieli-toolchain/
+tools/community-re/
+tools/ghidra/
+tools/GhidraMCP/
+
+# ── Build output (regenerable) ──────────────────────────────────────────────
+firmware-builds/
+*.o
+*.elf.bak
+
+# ── OS / editors ────────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/

@@ -1,0 +1,32 @@
+diff --git a/SDK/apps/watch/app_main.c b/SDK/apps/watch/app_main.c
+index eb881b5..3a28792 100644
+--- a/SDK/apps/watch/app_main.c
++++ b/SDK/apps/watch/app_main.c
+@@ -52,6 +52,19 @@
+ #include "product_test.h"
+ #include "chgbox_ctrl.h"
+ 
++/* M1 self-built: forward decl (lcd_drv_backlight_ctrl_base no expuesto en lcd_drive.h) */
++extern int lcd_drv_backlight_ctrl_base(u8 percent);
++
++static void m1_backlight_toggle_task(void *priv)
++{
++    u8 state = 0;
++    while (1) {
++        state = !state;
++        lcd_drv_backlight_ctrl_base(state ? 100 : 0);
++        os_time_dly(50);
++    }
++}
++
+ #define LOG_TAG             "[APP]"
+ #define LOG_ERROR_ENABLE
+ #define LOG_DEBUG_ENABLE
+@@ -791,6 +804,7 @@ void app_main()
+ #endif
+ 
+     task_create(app_task_loop, NULL, "app_core");
++    task_create(m1_backlight_toggle_task, NULL, "m1_bl");
+ 
+     os_start(); //no return
+     while (1) {

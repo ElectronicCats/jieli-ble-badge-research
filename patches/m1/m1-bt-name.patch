@@ -1,0 +1,13 @@
+diff --git a/SDK/apps/watch/user_cfg.c b/SDK/apps/watch/user_cfg.c
+index 1f964b5..25651ef 100644
+--- a/SDK/apps/watch/user_cfg.c
++++ b/SDK/apps/watch/user_cfg.c
+@@ -34,7 +34,7 @@
+ void app_set_sys_vol(s16 vol_l, s16  vol_r);
+ 
+ BT_CONFIG bt_cfg = {
+-    .edr_name        = {'Y', 'L', '-', 'B', 'R', '3', '0'},
++    .edr_name        = {'M', '1', '-', 'E', '8', '7'},
+     .mac_addr        = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+     .tws_local_addr  = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+     .rf_power        = 10,

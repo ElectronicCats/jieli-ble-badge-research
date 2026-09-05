@@ -1,0 +1,15 @@
+diff --git a/SDK/apps/watch/include/app_config.h b/SDK/apps/watch/include/app_config.h
+index 920e7bd..083e1be 100644
+--- a/SDK/apps/watch/include/app_config.h
++++ b/SDK/apps/watch/include/app_config.h
+@@ -177,7 +177,9 @@
+ 
+ #define RCSP_USE_BLE      0
+ #define RCSP_USE_SPP      1
+-#define RCSP_CHANNEL_SEL  RCSP_USE_SPP
++/* M1 v2: RCSP sobre BLE (no SPP) para que qix-ble flash funcione post-flash.
++ * BT_AI_SEL_PROTOCOL ya incluye RCSP_MODE_EN via AI_SEL_RCSP por default en OEM SDK. */
++#define RCSP_CHANNEL_SEL  RCSP_USE_BLE
+ 
+ #if (BT_AI_SEL_PROTOCOL & FMNA_EN)
+ //存放token信息

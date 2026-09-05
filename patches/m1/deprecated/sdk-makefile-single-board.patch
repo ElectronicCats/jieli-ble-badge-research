@@ -1,0 +1,13 @@
+diff --git a/SDK/Makefile b/SDK/Makefile
+index ec571f5..b2b0dc6 100644
+--- a/SDK/Makefile
++++ b/SDK/Makefile
+@@ -531,8 +531,6 @@ c_SRC_FILES := \
+ 	apps/watch/ble/ble_adv.c \
+ 	apps/watch/ble/bt_ble.c \
+ 	apps/watch/board/adkey_config.c \
+-	apps/watch/board/br35/board_ac7074_demo/board_ac7074_demo.c \
+-	apps/watch/board/br35/board_ac707n_csc_demo/board_ac707n_csc_demo.c \
+ 	apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo.c \
+ 	apps/watch/board/iokey_config.c \
+ 	apps/watch/board/rdeckey_config.c \

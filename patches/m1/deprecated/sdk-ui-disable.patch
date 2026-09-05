@@ -1,0 +1,13 @@
+diff --git a/SDK/apps/watch/board/br35/sdk_config.h b/SDK/apps/watch/board/br35/sdk_config.h
+index e278be6..54fe3dc 100644
+--- a/SDK/apps/watch/board/br35/sdk_config.h
++++ b/SDK/apps/watch/board/br35/sdk_config.h
+@@ -197,7 +197,7 @@
+ // ------------电源配置.json------------
+ 
+ // ------------LCD_UI配置.json------------
+-#define TCFG_UI_ENABLE 1 // UI配置
++#define TCFG_UI_ENABLE 0 // UI配置 — M1 disabled: avoid wrong-panel/wrong-touch init on E87 HW
+ #if TCFG_UI_ENABLE
+ #define CONFIG_JL_UI_ENABLE 1 // 杰理UI
+ #define CONFIG_LVGL_UI_ENABLE 0 // LVGL

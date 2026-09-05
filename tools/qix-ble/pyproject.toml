@@ -1,0 +1,32 @@
+[project]
+name = "qix-ble"
+version = "0.1.0"
+description = "Cliente Python BLE para badges Qix (path com.qix.library)"
+requires-python = ">=3.10"
+dependencies = [
+    "bleak>=0.21",
+    "cryptography>=42",
+    # dbus-fast is only used by bluez_cleanup.py (BlueZ zombie-connection cleanup),
+    # which is Linux-only. On Windows/macOS bleak's native backend handles this, so
+    # the dependency (and the import) are gated to Linux — see bluez_cleanup.py.
+    "dbus-fast>=2; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+media = [
+    "Pillow>=10",
+    "numpy>=1.26",
+]
+
+[project.scripts]
+qix = "qix_ble.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qix_ble*"]
+exclude = ["tests*", "scripts*"]

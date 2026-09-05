@@ -1,0 +1,22 @@
+diff --git a/SDK/apps/watch/board/br35/board_ac707n_csc_demo/board_ac707n_csc_demo_cfg.h b/SDK/apps/watch/board/br35/board_ac707n_csc_demo/board_ac707n_csc_demo_cfg.h
+index 1b8fa48..9846eec 100644
+--- a/SDK/apps/watch/board/br35/board_ac707n_csc_demo/board_ac707n_csc_demo_cfg.h
++++ b/SDK/apps/watch/board/br35/board_ac707n_csc_demo/board_ac707n_csc_demo_cfg.h
+@@ -241,7 +241,7 @@
+ #define TCFG_SPI_LCD_ENABLE TCFG_UI_ENABLE//spi lcd开关
+ #define TCFG_LCD_NB3030_172X320 0
+ #define TCFG_LCD_SPI_GC9B71_ENABLE  0
+-#define TCFG_LCD_SPI_ST77916_ENABLE 0
++#define TCFG_LCD_SPI_ST77916_ENABLE 1
+ #define TCFG_LCD_SPI_SH8501A_ENABLE 0
+ #define TCFG_LCD_SPI_ICNA3306_ENABLE 0
+ #define TCFG_LCD_SPI_SH8601A_ENABLE 0
+@@ -252,7 +252,7 @@
+ #define TCFG_LCD_RGB_ENABLE 0
+ #define TCFG_LCD_MATCH_MODE 0
+ #define TCFG_LCD_SPI_JD9853_320x172_ENABLE 0
+-#define TCFG_LCD_GC9307_172X320 1
++#define TCFG_LCD_GC9307_172X320 0
+ #define LCD_MATCH_BY_LOGO   0 //通过屏驱logo来匹配
+ #define LCD_LOGO            "null"
+ #define TCFG_LCD_TE_USED_PEND 1
