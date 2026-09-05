@@ -9,6 +9,12 @@ opening the case.
 > before using anything here, and use it **only on hardware you own**. Disclosure
 > posture is in **[SECURITY.md](SECURITY.md)**.
 
+## 🎤 Charla
+
+Presentado en **DragonJarCon** (BSides LatAm) — *"Compré un e-badge otaku de 10 dólares
+y terminé hackeándolo"*. La investigación arrancó con el skill de auditoría de APKs de
+**DragonJAR SAS** ([Android-Pentesting-Skill](https://github.com/DragonJAR/Android-Pentesting-Skill)).
+
 ## The result (the chain that works)
 
 The OEM badge only exposes an **app-only** BLE OTA (the path the ZRun app uses). This
