@@ -9,11 +9,12 @@ opening the case.
 > before using anything here, and use it **only on hardware you own**. Disclosure
 > posture is in **[SECURITY.md](SECURITY.md)**.
 
-## 🎤 Charla
+## 🎤 Talk
 
-Presentado en **DragonJarCon** (BSides LatAm) — *"Compré un e-badge otaku de 10 dólares
-y terminé hackeándolo"*. La investigación arrancó con el skill de auditoría de APKs de
-**DragonJAR SAS** ([Android-Pentesting-Skill](https://github.com/DragonJAR/Android-Pentesting-Skill)).
+Presented at **DragonJarCon** (BSides LatAm) —
+*"Compré un e-badge otaku de 10 dólares y terminé hackeándolo"* (talk in Spanish).
+The research started from **DragonJAR SAS**'s APK-auditing skill
+([Android-Pentesting-Skill](https://github.com/DragonJAR/Android-Pentesting-Skill)).
 
 ## The result (the chain that works)
 
@@ -80,3 +81,8 @@ cipher copies so it runs without that mirror present.
 it. It is published here as a **research artifact** — see **[DISCLAIMER.md](DISCLAIMER.md)**.
 No OEM firmware, application binaries, application/cloud crypto keys, or vendor
 datasheets are included in this repository.
+
+## Authors
+
+- **Andrés Sabas** ([@sabas1080](https://github.com/sabas1080)) — [Electronic Cats](https://electroniccats.com)
+- **Heikki Perea** ([@HeikkiRadu](https://github.com/HeikkiRadu)) — [Electronic Cats](https://electroniccats.com)
