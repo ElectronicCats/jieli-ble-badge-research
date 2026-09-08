@@ -1,37 +1,37 @@
-# Contribuciones pendientes a upstream
+# Pending upstream contributions
 
-Tracker de mejoras y bugs detectados durante el proyecto, para aportar de vuelta a los repos comunitarios cuando cierre la fase actual. Filosofía: si una herramienta nos falla de manera reproducible, devolvemos el fix.
+Tracker of improvements and bugs detected during the project, to give back to the community repos once the current phase closes. Philosophy: if a tool fails us reproducibly, we return the fix.
 
-## Convención
+## Convention
 
-Cada entrada incluye: repo target · descripción del problema · evidencia del proyecto donde lo encontramos · propuesta de fix · estado.
+Each entry includes: target repo · problem description · project evidence where we found it · proposed fix · status.
 
-Estados: `🔍 documentado` → `🛠️ patch local` → `📤 PR abierto` → `✅ merged`.
+Statuses: `🔍 documented` → `🛠️ local patch` → `📤 PR open` → `✅ merged`.
 
 ---
 
-## 1. Android-Pentesting-Skill — `auto-audit-static.sh` aborta por exit code de jadx
+## 1. Android-Pentesting-Skill — `auto-audit-static.sh` aborts on jadx exit code
 
-**Repo upstream:** https://github.com/DragonJAR/Android-Pentesting-Skill
-**Estado:** 📤 PR abierto (2026-05-05) — pendiente review
-**PR URL:** _<a completar — pegar el link del PR aquí>_
-**Branch local:** `tools/android-skill/` rama `fix/auto-audit-tolerate-jadx-exit` (commit `8f8301e`, rebased contra `origin/main`)
-**Severidad:** funcional — bloquea uso del script en APKs medianos/grandes
+**Upstream repo:** https://github.com/DragonJAR/Android-Pentesting-Skill
+**Status:** 📤 PR open (2026-05-05) — pending review
+**PR URL:** _<to complete — paste the PR link here>_
+**Local branch:** `tools/android-skill/` branch `fix/auto-audit-tolerate-jadx-exit` (commit `8f8301e`, rebased against `origin/main`)
+**Severity:** functional — blocks use of the script on medium/large APKs
 
-### Síntomas observados
+### Observed symptoms
 
-Ocurrió **dos veces consecutivas** en este proyecto:
+Occurred **twice in a row** in this project:
 
-| Sesión | APK | Tamaño | Modo | Resultado | Causa raíz |
+| Session | APK | Size | Mode | Result | Root cause |
 |---|---|---|---|---|---|
-| 2026-05-04 | `superband-v2.1.23.apk` | 41 MB / ~8.8k clases | `--full` | ⚠️ jadx exit ≠ 0, script aborta | `ERROR - finished with errors, count: 17` (ignorables, sources se generan) |
-| 2026-05-05 (T16 ZRun) | `zrun-v2.2.5.apk` | 50 MB / ~14.9k clases | `--full` y `--quick` | ❌ jadx Killed (OOM) | Heap default insuficiente para 14k clases |
+| 2026-05-04 | `superband-v2.1.23.apk` | 41 MB / ~8.8k classes | `--full` | ⚠️ jadx exit ≠ 0, script aborts | `ERROR - finished with errors, count: 17` (ignorable, sources are generated) |
+| 2026-05-05 (T16 ZRun) | `zrun-v2.2.5.apk` | 50 MB / ~14.9k classes | `--full` and `--quick` | ❌ jadx Killed (OOM) | Default heap insufficient for 14k classes |
 
-En ambos casos el script aborta en Phase 0 con `[✗] jadx failed`, marcando `00-decode-info.txt` como `jadx: FAILED` y skipeando Phase 1-3 enteras.
+In both cases the script aborts in Phase 0 with `[✗] jadx failed`, marking `00-decode-info.txt` as `jadx: FAILED` and skipping Phases 1-3 entirely.
 
-### Causa raíz (lectura del script)
+### Root cause (reading the script)
 
-`tools/android-skill/scripts/auto-audit-static.sh` línea 319:
+`tools/android-skill/scripts/auto-audit-static.sh` line 319:
 
 ```bash
 if $jadx_cmd -d "$OUTPUT_DIR/jadx-output" "$APK_FILE" > "$OUTPUT_DIR/jadx.log" 2>&1; then
@@ -43,16 +43,16 @@ else
 fi
 ```
 
-Dos problemas:
+Two problems:
 
-1. **`set -e` global** (asumido por la propagación del fallo) hace que cualquier exit ≠ 0 detenga el script. jadx retorna ≠ 0 cuando hay errores ignorables aunque el output sea utilizable.
-2. **No se controla heap de la JVM de jadx**. APKs grandes saturan el `-Xmx` default y el kernel lo `Killed`.
+1. **Global `set -e`** (assumed from the failure propagation) makes any exit ≠ 0 stop the script. jadx returns ≠ 0 when there are ignorable errors even though the output is usable.
+2. **The jadx JVM heap is not controlled**. Large APKs saturate the default `-Xmx` and the kernel `Killed`s it.
 
-### Propuesta de fix (PR a abrir)
+### Proposed fix (PR to open)
 
-Tres mejoras combinables:
+Three combinable improvements:
 
-**(a) Tolerar exit ≠ 0 si los sources se generaron:**
+**(a) Tolerate exit ≠ 0 if the sources were generated:**
 ```bash
 $jadx_cmd -d "$OUTPUT_DIR/jadx-output" "$APK_FILE" > "$OUTPUT_DIR/jadx.log" 2>&1
 jadx_rc=$?
@@ -70,108 +70,108 @@ else
 fi
 ```
 
-**(b) Subir heap default a 4G y permitir override por env:**
+**(b) Raise the default heap to 4G and allow an env override:**
 ```bash
 local jadx_heap="${JADX_HEAP:-4g}"
 local jadx_cmd="jadx -j $(nproc) --no-imports"
 JAVA_OPTS="-Xmx${jadx_heap}" $jadx_cmd ...
 ```
 
-**(c) Flag `--reuse-decompile <path>` para skipear jadx:**
+**(c) `--reuse-decompile <path>` flag to skip jadx:**
 ```bash
 if [ -n "$REUSE_DECOMPILE" ] && [ -d "$REUSE_DECOMPILE/sources" ]; then
     log_info "Reusing decompile from $REUSE_DECOMPILE"
     ln -sfn "$(realpath "$REUSE_DECOMPILE")" "$OUTPUT_DIR/jadx-output"
     echo "jadx: SKIPPED (reused $REUSE_DECOMPILE)" >> "$decode_file"
 else
-    # ...invocar jadx normalmente...
+    # ...invoke jadx normally...
 fi
 ```
 
-Argumentos para `--reuse-decompile`:
-- En proyectos con varios APKs decompilamos una vez en T15 y queremos reutilizar en T16
-- Reduce tiempo de auditoría iterativa de minutos a segundos
-- Útil en CI cuando jadx ya corrió en step previo
+Arguments for `--reuse-decompile`:
+- In projects with several APKs we decompile once in T15 and want to reuse in T16
+- Cuts iterative audit time from minutes to seconds
+- Useful in CI when jadx already ran in a previous step
 
-**(d) Modo `--quick` debería skipear jadx completamente** (no solo "rápido en grep") — porque sus checks (manifest + grep crítico) solo necesitan apktool + strings.
+**(d) `--quick` mode should skip jadx entirely** (not just be "fast at grep") — because its checks (manifest + critical grep) only need apktool + strings.
 
-### Plan para abrir el PR
+### Plan to open the PR
 
-1. Revisar el repo upstream del skill (verificar nombre exacto en `tools/android-skill/.git/config`)
-2. Forkear, branch `fix/auto-audit-tolerate-jadx-exit`
-3. Aplicar (a) + (b) + (d) como mínimo; (c) si la review lo acepta
-4. Test contra los dos APKs del proyecto + uno chico de control
-5. PR con descripción del bug + evidencia (logs reproducibles)
+1. Review the skill's upstream repo (verify the exact name in `tools/android-skill/.git/config`)
+2. Fork, branch `fix/auto-audit-tolerate-jadx-exit`
+3. Apply (a) + (b) + (d) at minimum; (c) if the review accepts it
+4. Test against the two project APKs + a small control one
+5. PR with a bug description + evidence (reproducible logs)
 
-### Cuándo abrirlo
+### When to open it
 
-**Después de Gate 1** (cierre de Plan 1, T22-T25). Antes nos enfoca el RE; el PR es contribución que puede tomar review timing externo y no debe bloquear. **✅ Ejecutado 2026-05-05.**
+**After Gate 1** (close of Plan 1, T22-T25). Before that the RE is our focus; the PR is a contribution that may take external review timing and must not block. **✅ Executed 2026-05-05.**
 
-### Notas adicionales detectadas durante el fix (no incluidas en este PR)
+### Additional notes detected during the fix (not included in this PR)
 
-Bug pre-existente: la función `phase0_decode` renombra `OUTPUT_DIR` después de extraer el `package_name` del manifest, pero `decode_file` (variable `local` capturada al inicio) queda apuntando al path viejo. Falla cualquier escritura subsiguiente a `decode_file`. Triggea cuando `OUTPUT_DIR` contiene la subcadena `audit-`. Workaround temporal: pasar `output-dir` explícito sin `audit-`.
+Pre-existing bug: the `phase0_decode` function renames `OUTPUT_DIR` after extracting the `package_name` from the manifest, but `decode_file` (a `local` variable captured at the start) keeps pointing to the old path. Any subsequent write to `decode_file` fails. Triggers when `OUTPUT_DIR` contains the substring `audit-`. Temporary workaround: pass an explicit `output-dir` without `audit-`.
 
-→ Candidato para PR follow-up separado.
+→ Candidate for a separate follow-up PR.
 
 ---
 
-## 2. jl-uboot-tool — falta soporte para BR35 (AC707N)
+## 2. jl-uboot-tool — missing support for BR35 (AC707N)
 
-**Repo upstream:** https://github.com/kagaimiq/jl-uboot-tool
-**Estado:** 🛠️ patch local (2026-05-18) — pendiente validación HW antes de PR
-**Branch local:** `tools/community-re/jl-uboot-tool/` (3 archivos modificados + 1 nuevo binary)
-**Severidad:** funcional — bloquea uso del tool para todo el ecosistema AC707N (smartwatches, badges, etc.)
+**Upstream repo:** https://github.com/kagaimiq/jl-uboot-tool
+**Status:** 🛠️ local patch (2026-05-18) — pending HW validation before PR
+**Local branch:** `tools/community-re/jl-uboot-tool/` (3 files modified + 1 new binary)
+**Severity:** functional — blocks use of the tool for the entire AC707N ecosystem (smartwatches, badges, etc.)
 
-### Síntomas observados
+### Observed symptoms
 
-`jl-uboot-tool` (matriz de chips soportados en README) lista BR17-BR34 + BR36, **omite BR35**. Para el e-badge user (AC707N, PID 1558) intentar `jluboottool.py --chip br35` falla en `get_chip_name()` retornando `None`. No hay loader binary en `data/loaderblobs/usb/` ni entry en `data/chips.yaml` / `data/usb-loaders.yaml`.
+`jl-uboot-tool` (supported-chip matrix in the README) lists BR17-BR34 + BR36, **omits BR35**. For the e-badge user (AC707N, PID 1558), trying `jluboottool.py --chip br35` fails in `get_chip_name()`, returning `None`. There is no loader binary in `data/loaderblobs/usb/` nor an entry in `data/chips.yaml` / `data/usb-loaders.yaml`.
 
-### Causa raíz
+### Root cause
 
-BR35 (AC707N) fue introducido en el catálogo JieLi después del último update del repo `kagaimiq/jl-uboot-tool`. El chip es pi32v2 + protocol UBOOT1.00 v2 + quirk MengLi (igual familia que BR34/BR36 que sí están), pero la entry simplemente no se materializó.
+BR35 (AC707N) was introduced in the JieLi catalog after the last update of the `kagaimiq/jl-uboot-tool` repo. The chip is pi32v2 + UBOOT1.00 v2 protocol + MengLi quirk (same family as BR34/BR36, which are present), but the entry simply never materialized.
 
-### Propuesta de fix (patch local aplicado, listo para PR post-HW-test)
+### Proposed fix (local patch applied, ready for PR post-HW-test)
 
-**(a) `data/loaderblobs/usb/br35loader.bin`** — nuevo binario, copiado desde `e_badge_707_sdk_200/SDK/cpu/br35/tools/br35loader.bin` (md5 `ab0ae3c35548a06bdc94a2e5774c7a22`, 27328 B).
+**(a) `data/loaderblobs/usb/br35loader.bin`** — new binary, copied from `e_badge_707_sdk_200/SDK/cpu/br35/tools/br35loader.bin` (md5 `ab0ae3c35548a06bdc94a2e5774c7a22`, 27328 B).
 
-**(b) `data/chips.yaml`** — entry `br35:` insertada entre `br34:` y `br36:` con memory map completo derivado del linker `maskrom_stubs.ld` + `sdk_ld.c`: 5 regiones SRAM (isr-base, maskrom-export, ram0, dcache-ram, icache-ram), maskrom ROM, psram, sfc. Quirk `memory-rw-mengli-crypt: yes`.
+**(b) `data/chips.yaml`** — `br35:` entry inserted between `br34:` and `br36:` with a full memory map derived from the linker `maskrom_stubs.ld` + `sdk_ld.c`: 5 SRAM regions (isr-base, maskrom-export, ram0, dcache-ram, icache-ram), maskrom ROM, psram, sfc. Quirk `memory-rw-mengli-crypt: yes`.
 
-**(c) `data/usb-loaders.yaml`** — entry `br35:` con `address: 0x102600` (= `_UBOOT_LOADER_RAM_START`), **`encryption: none`** (decisión no-trivial: el loader del SDK viene plaintext, distinto a br23/br25/br28/br34 que están MengLi-encoded en disco; ver heurística de header magic).
+**(c) `data/usb-loaders.yaml`** — `br35:` entry with `address: 0x102600` (= `_UBOOT_LOADER_RAM_START`), **`encryption: none`** (non-trivial decision: the SDK loader ships plaintext, unlike br23/br25/br28/br34 which are MengLi-encoded on disk; see the header magic heuristic).
 
-### Validación realizada antes del PR
+### Validation done before the PR
 
-- YAML parsea limpio con SafeLoader
-- `get_chip_name("AC707N") → br35` confirmado mirroring la lógica de `jluboottool.py:53-63`
-- Memory map cross-checked línea-por-línea contra `maskrom_stubs.ld:196-205` y `sdk_ld.c:62-94, 580-581`
-- 0 overlaps entre las 8 regiones
-- Trace de la XOR boolean del upload loop (`jluboottool.py:686-691,705-707`) confirma que con `chip_quirk=True + cipher='none'` el host aplica MengLi crypt antes de send
-- 2 rounds de revisión por agente independiente — la 1ra dejó pasar bug numérico en cache origins (0x376000 mal-derivado), la 2da con instrucción explícita "no confíes en mi aritmética" lo encontró → corregido a 0x372000
+- YAML parses cleanly with SafeLoader
+- `get_chip_name("AC707N") → br35` confirmed, mirroring the logic of `jluboottool.py:53-63`
+- Memory map cross-checked line-by-line against `maskrom_stubs.ld:196-205` and `sdk_ld.c:62-94, 580-581`
+- 0 overlaps between the 8 regions
+- Trace of the upload loop's XOR boolean (`jluboottool.py:686-691,705-707`) confirms that with `chip_quirk=True + cipher='none'` the host applies MengLi crypt before send
+- 2 rounds of review by an independent agent — the 1st let a numeric bug in cache origins slip through (0x376000 mis-derived), the 2nd, with the explicit instruction "do not trust my arithmetic", found it → corrected to 0x372000
 
-### Bug latente detectado en jluboottool.py (candidato a PR follow-up separado)
+### Latent bug detected in jluboottool.py (candidate for a separate follow-up PR)
 
-Línea 682:
+Line 682:
 ```python
 block_size = spec.get('blocksize', 512)
 ```
-Busca key `blocksize` (sin guion). Todos los configs existentes en `usb-loaders.yaml` usan `block-size:` con guion. Resultado: el código nunca usa el value del config, siempre cae al default 512. En la práctica nadie lo nota porque todos los configs usan 512 también. Fix trivial: `spec.get('block-size', spec.get('blocksize', 512))`.
+Looks up the key `blocksize` (no hyphen). All existing configs in `usb-loaders.yaml` use `block-size:` with a hyphen. Result: the code never uses the config value, it always falls back to the default 512. In practice nobody notices because all configs use 512 too. Trivial fix: `spec.get('block-size', spec.get('blocksize', 512))`.
 
-### Cuándo abrirlo
+### When to open it
 
-Después de validación HW empírica del flash live (BR35 chip en MaskROM mode vía dongle 0x16EF o soft-trigger M1). NO antes — si el `encryption: none` está mal o el memory map tiene un off-by-N indetectado por static review, el PR sería ruido en upstream. Aplica filosofía `feedback_upstream_contributions`: documentar local, PR post-Gate.
+After empirical HW validation of the live flash (BR35 chip in MaskROM mode via a 0x16EF dongle or an M1 soft-trigger). NOT before — if the `encryption: none` is wrong or the memory map has an off-by-N undetected by static review, the PR would be noise upstream. Applies the `feedback_upstream_contributions` philosophy: document local, PR post-Gate.
 
 ---
 
-<!-- Plantilla para próximas entradas:
+<!-- Template for future entries:
 
-## N. <repo> — <título corto>
+## N. <repo> — <short title>
 
 **Repo:** <url>
-**Estado:** 🔍 documentado | 🛠️ patch local | 📤 PR abierto | ✅ merged
-**Severidad:** <funcional / mejora / cosmético>
+**Status:** 🔍 documented | 🛠️ local patch | 📤 PR open | ✅ merged
+**Severity:** <functional / improvement / cosmetic>
 
-### Síntomas
-### Causa raíz
-### Propuesta de fix
-### Plan para abrir el PR
+### Symptoms
+### Root cause
+### Proposed fix
+### Plan to open the PR
 
 -->

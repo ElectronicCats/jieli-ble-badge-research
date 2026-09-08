@@ -22,15 +22,18 @@ The OEM badge only exposes an **app-only** BLE OTA (the path the ZRun app uses).
 turns that single foothold into full control, entirely over BLE:
 
 ```
-OEM app-only OTA ──► minimal loader ("STAGER" bridge) ──► custom firmware
-                     raw-flash 0xD0–0xD3 + apply 0xD4       (your UI / content)
+OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-custom )
 ```
 
-- The badge's **MAC is constant** across all three stages (it lives in the preserved
-  `key_mac`); only the advertised **name** changes `OEM → STAGER → EC-BADGE`, so all
-  tooling addresses the badge **by MAC**, never by name.
-- Resources are written via raw-flash opcodes; the code image is applied through the
-  loader's `0xD4` path (uboot `lcflash`).
+- The custom firmware is packaged **fw-custom** (your `app.bin` spliced into an OEM
+  `.ufw`, keeping the **OEM uboot**). A single `qix flash --oem` hands it to the resident
+  OEM uboot, which rewrites the CODE partition and boots the custom — no cable, no loader.
+- The badge's **MAC is constant** (it lives in the preserved `key_mac`); only the advertised
+  **name** changes `OEM → custom firmware`, so all tooling addresses the badge **by MAC**, not by name.
+- **Legacy note:** an older `provision`/`deploy-fw` **STAGER** loader chain
+  (`OEM → loader → custom`, raw-flash `0xD0–0xD3` + apply `0xD4`) is **no longer used** — kept
+  only for a custom that must write the separate `ui_res`/`virfat` resource partitions.
+  See [docs/ota-howto.md](docs/ota-howto.md).
 
 ## Repository map
 
@@ -39,7 +42,7 @@ OEM app-only OTA ──► minimal loader ("STAGER" bridge) ──► custom fir
 | `tools/` | Standalone tools + BLE client libraries (see table). |
 | `scripts/` | Build & utility CLIs — JieLi SDK build, UFW repack, chipkey inject, HW capture. See `scripts/README.md`. |
 | `patches/` | Incremental JieLi-SDK `.patch` files (`m1/` active, `deprecated/` archived). |
-| `firmware/` | Self-built AC707N images: the M1 firmware and the STAGER loader. |
+| `firmware/` | The self-built custom firmware (`custom-fw-ac707n.ufw`). |
 | `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build) + upstream-contribution notes. |
 
 ## Tools (`tools/`)
@@ -65,8 +68,10 @@ cipher copies so it runs without that mirror present.
 
 ## Quick start
 
-- **Flash custom firmware over BLE** (from any state): `tools/qix-ble` →
-  `qix provision …` (OEM → loader → custom) or `qix deploy-fw …` (loader → custom).
+- **Flash custom firmware over BLE** (OEM→custom and custom→custom): `tools/qix-ble` →
+  `qix flash <MAC> firmware/custom-fw-ac707n.ufw --oem`. Full command reference and
+  prerequisites: **[docs/ota-howto.md](docs/ota-howto.md)**. (The legacy `qix provision` /
+  `deploy-fw` STAGER chain is no longer used — see the doc.)
 - **Build firmware**: the JieLi SDK lives outside this repo; build with the
   `scripts/build-jieli-ac707n*.sh` helpers and the `patches/m1/` patch set.
 - **Repack / inject into a UFW**: `tools/ufw-repack/` (pure Python).

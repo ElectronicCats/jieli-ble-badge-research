@@ -1,51 +1,51 @@
-# Captura BLE en vivo — receta operativa
+# Live BLE capture — operational recipe
 
-> Receta para usar cuando lleguen los e-badges (~mediados mayo 2026). **Aún no validada** contra superband/zrun (sin HW). FeralRF tampoco re-validado en esta sesión: T5 del Plan 1 quedó ⏸ pendiente del CatSniffer físico.
+> Recipe to use once the e-badges arrive (~mid-May 2026). **Not yet validated** against superband/zrun (no HW). FeralRF also not re-validated in this session: T5 of Plan 1 was left ⏸ pending the physical CatSniffer.
 
-## Pre-requisitos
+## Prerequisites
 
-| Tool | Estado |
+| Tool | Status |
 |---|---|
-| CatSniffer V3+ | ⏸ pendiente — no disponible en esta máquina al cierre Gate 1 |
-| FeralRF instalado | ⏸ pendiente de validación |
-| Sniffle como fallback | ⏸ pendiente |
-| `bluetoothctl` (BlueZ) | ✅ disponible (Linux 6.8) |
-| Wireshark con btatt decoder | (a instalar al recibir HW) |
+| CatSniffer V3+ | ⏸ pending — not available on this machine at Gate 1 close |
+| FeralRF installed | ⏸ pending validation |
+| Sniffle as fallback | ⏸ pending |
+| `bluetoothctl` (BlueZ) | ✅ available (Linux 6.8) |
+| Wireshark with btatt decoder | (to install on receiving HW) |
 
-> **Bloqueo:** Step 1 del plan original ("Re-validar FeralRF") requiere conectar el CatSniffer y correr `python python/examples/ble_sniffer.py`. No ejecutado en esta sesión. Documentado para realizar al recibir el HW del CatSniffer.
+> **Blocker:** Step 1 of the original plan ("Re-validate FeralRF") requires connecting the CatSniffer and running `python python/examples/ble_sniffer.py`. Not executed in this session. Documented to be done on receiving the CatSniffer HW.
 
-## Setup base (al recibir CatSniffer)
+## Base setup (on receiving the CatSniffer)
 
-> `FeralRF` y `CatSniffer-Tools` son repos externos (Electronic Cats), clonados
-> fuera de este proyecto donde prefieras. Abajo se usan las rutas placeholder
-> `~/FeralRF` y `~/CatSniffer-Tools`; ajústalas a donde los tengas clonados.
+> `FeralRF` and `CatSniffer-Tools` are external repos (Electronic Cats), cloned
+> outside this project wherever you prefer. Below, the placeholder paths
+> `~/FeralRF` and `~/CatSniffer-Tools` are used; adjust them to wherever you have them cloned.
 
 ```bash
-# 1. Verificar que FeralRF está clonado y con .venv
+# 1. Verify FeralRF is cloned and has a .venv
 cd ~/FeralRF
 ls .venv/bin/python || python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# 2. Conectar CatSniffer al USB y confirmar device
-ls /dev/ttyACM*  # esperado: /dev/ttyACM0
+# 2. Connect the CatSniffer to USB and confirm the device
+ls /dev/ttyACM*  # expected: /dev/ttyACM0
 
-# 3. Si firmware no es FeralRF reciente, flashear con Catnip
+# 3. If the firmware is not recent FeralRF, flash it with Catnip
 cd ~/CatSniffer-Tools
-python catnip.py -f feralrf  # o sniffle si se prefiere
+python catnip.py -f feralrf  # or sniffle if preferred
 
-# 4. Test smoke con FeralRF
+# 4. Smoke test with FeralRF
 cd ~/FeralRF
 source .venv/bin/activate
 python python/examples/ble_sniffer.py --channel 37
-# Esperado: paquetes de advertising de algún device BLE cercano (teléfono o cualquier wearable)
+# Expected: advertising packets from some nearby BLE device (phone or any wearable)
 ```
 
-Si FeralRF responde con paquetes en pantalla → ✅ ready. Si silencia o errores → fallback a Sniffle (paso siguiente).
+If FeralRF responds with packets on screen → ✅ ready. If silent or errors → fall back to Sniffle (next step).
 
-## Captura de advertising — descubrir el badge
+## Advertising capture — discover the badge
 
-Antes de conectar la app oficial. El badge debe estar encendido pero NO conectado a un teléfono.
+Before connecting the official app. The badge must be powered on but NOT connected to a phone.
 
 ```bash
 # Channel 37
@@ -58,121 +58,121 @@ python python/examples/ble_sniffer.py --channel 38 --duration 30 --output captur
 python python/examples/ble_sniffer.py --channel 39 --duration 30 --output captures/2026-05-XX-superband-adv-39.pcap
 ```
 
-Abrir el `.pcap` en Wireshark, filtrar por `btle.advertising_address` y identificar la MAC del badge. Anotar.
+Open the `.pcap` in Wireshark, filter by `btle.advertising_address` and identify the badge MAC. Note it down.
 
-**Validaciones contra hipótesis:**
+**Validations against hypotheses:**
 
-| Hipótesis | Cómo validar |
+| Hypothesis | How to validate |
 |---|---|
-| SuperBand advertise como `DG01` | Buscar `btle.advertising_data.flags` y campo `Local Name` con valor "DG01" o variante |
-| SuperBand expone NUS `6e400001-…dcca9d` | Una vez conectado, listar services con `bluetoothctl info <MAC>` |
-| ZRun advertise como `ZRun` o un BT name | Buscar Local Name en advertising |
-| ZRun expone service `C2E6FD00-E966-1000-8000-BEF9C223DF6A` | `bluetoothctl info <MAC>` listará UUIDs |
-| Manufacturer Specific Data con company ID | Buscar `btle.advertising_data.manufacturer_specific_data` |
+| SuperBand advertises as `DG01` | Look for `btle.advertising_data.flags` and the `Local Name` field with value "DG01" or a variant |
+| SuperBand exposes NUS `6e400001-…dcca9d` | Once connected, list services with `bluetoothctl info <MAC>` |
+| ZRun advertises as `ZRun` or a BT name | Look for the Local Name in advertising |
+| ZRun exposes service `C2E6FD00-E966-1000-8000-BEF9C223DF6A` | `bluetoothctl info <MAC>` will list the UUIDs |
+| Manufacturer Specific Data with a company ID | Look for `btle.advertising_data.manufacturer_specific_data` |
 
-## Captura de connection — tráfico app↔badge
+## Connection capture — app↔badge traffic
 
-Una vez identificada la MAC:
+Once the MAC is identified:
 
 ```bash
-# Apagar Bluetooth del teléfono Android (que tiene la app oficial)
-# Iniciar follow desde FeralRF
+# Turn off the Bluetooth of the Android phone (which has the official app)
+# Start the follow from FeralRF
 python python/examples/ble_sniffer.py --follow <MAC-del-badge> --output captures/2026-05-XX-superband-connection.pcap
 
-# Encender Bluetooth del teléfono y abrir app SuperBand/ZRun
-# Operar la app, una acción a la vez:
-#   1. Conexión inicial
-#   2. Subir un watchface
-#   3. Cambiar brillo
-#   4. Sincronizar tiempo
-#   5. (ZRun) Mediciones de salud
-#   6. (ZRun) Probar AI conversacional (mic)
+# Turn on the phone Bluetooth and open the SuperBand/ZRun app
+# Operate the app, one action at a time:
+#   1. Initial connection
+#   2. Upload a watchface
+#   3. Change brightness
+#   4. Sync time
+#   5. (ZRun) Health measurements
+#   6. (ZRun) Test conversational AI (mic)
 
-# Cada acción produce paquetes — anotar en bitácora qué acción correspondió a qué timestamp
+# Each action produces packets — note in the log which action corresponded to which timestamp
 ```
 
-## Análisis post-captura
+## Post-capture analysis
 
 ```bash
-# Convertir a JSON para análisis programático
+# Convert to JSON for programmatic analysis
 tshark -r captures/2026-05-XX-superband-connection.pcap -T json > captures/2026-05-XX-superband.json
 
-# Filtrar writes a la TX char
+# Filter writes to the TX char
 tshark -r captures/.pcap -Y 'btatt.opcode == 0x12 || btatt.opcode == 0x52' -T fields \
   -e frame.time_relative -e btatt.handle -e btatt.value
 ```
 
-**Para validar el wire-format Baji de SuperBand:**
+**To validate SuperBand's Baji wire-format:**
 
 ```bash
-# Buscar bytes de inicio 0xCD en payloads
+# Look for the 0xCD start byte in payloads
 tshark -r captures/.pcap -Y 'btatt.value matches "^cd"' -T fields -e btatt.value | head -10
 ```
 
-**Para validar el wire-format Qix de ZRun:**
+**To validate ZRun's Qix wire-format:**
 
 ```bash
-# Buscar bytes de inicio 0x9E en payloads
+# Look for the 0x9E start byte in payloads
 tshark -r captures/.pcap -Y 'btatt.value matches "^9e"' -T fields -e btatt.value | head -10
 ```
 
-## Fallback a Sniffle (si FeralRF pierde paquetes)
+## Fallback to Sniffle (if FeralRF drops packets)
 
 ```bash
-# Flashear CatSniffer con Sniffle
+# Flash the CatSniffer with Sniffle
 cd ~/CatSniffer-Tools
 python catnip.py -f sniffle
 
-# Capturar
+# Capture
 cd ~/<repo-Sniffle>
 python sniff_receiver.py -m <MAC-del-badge> | wireshark -k -i -
 ```
 
-## Validación cruzada (deseable)
+## Cross-validation (desirable)
 
-Capturar 30s con FeralRF, luego mismo escenario 30s con Sniffle. Comparar:
-- Conteo de paquetes
-- MACs visibles
-- Diferencia en payloads (deberían ser idénticos byte-a-byte)
+Capture 30s with FeralRF, then the same scenario 30s with Sniffle. Compare:
+- Packet count
+- Visible MACs
+- Difference in payloads (should be byte-for-byte identical)
 
-Si difiere mucho, probable issue en uno de los dos firmwares — reportar a FeralRF si es el que pierde.
+If they differ significantly, likely an issue in one of the two firmwares — report it to FeralRF if it is the one dropping.
 
-## Validaciones específicas para Track HW
+## Track-HW-specific validations
 
-### Para SuperBand (validar wire-format Baji)
+### For SuperBand (validate the Baji wire-format)
 
-1. ¿Frame inicia con `0xCD`? Sí → confirma framing del doc protocol-superband.md
-2. ¿Tras `0xCD` viene length BE16, luego `0x25`? Sí → confirma magic Baji
-3. ¿`MEDIA_LIST_REQUEST` (módulo 0x02 cmd 0x00) responde con lista? Validar comportamiento del badge
-4. ¿FILE_TRANSFER opcodes producen el flow esperado?
+1. Does the frame start with `0xCD`? Yes → confirms the framing in protocol-superband.md
+2. After `0xCD`, does a BE16 length come, then `0x25`? Yes → confirms the Baji magic
+3. Does `MEDIA_LIST_REQUEST` (module 0x02 cmd 0x00) respond with a list? Validate the badge's behavior
+4. Do the FILE_TRANSFER opcodes produce the expected flow?
 
-### Para ZRun (validar wire-format Qix)
+### For ZRun (validate the Qix wire-format)
 
-1. ¿Frame inicia con `0x9E`? Sí → confirma framing del doc protocol-zrun.md
-2. ¿Tras `0x9E` viene checksum (suma simple bytes 2..N), luego flagStatus, cmd, len LE16? Validar parser
-3. **Vector A — TEST_GET_FLASH:** mandar `0x9E [chk] [flags] 0xAA [len LE16] [address LE32] [length LE32]` (formato exacto a validar) y esperar respuesta con bytes de flash
-4. ¿`UpdateManager.init(isFirmwareUpdate=true)` + header malformado provoca rechazo o brick? — **probar solo con backup hecho**
-5. ¿Audio capture en mic produce paquetes en `C2E6FD01` notify? (cmds AI_RECORD)
+1. Does the frame start with `0x9E`? Yes → confirms the framing in protocol-zrun.md
+2. After `0x9E`, does a checksum (simple sum of bytes 2..N) come, then flagStatus, cmd, len LE16? Validate the parser
+3. **Vector A — TEST_GET_FLASH:** send `0x9E [chk] [flags] 0xAA [len LE16] [address LE32] [length LE32]` (exact format to be validated) and expect a response with flash bytes
+4. Does `UpdateManager.init(isFirmwareUpdate=true)` + a malformed header cause a reject or a brick? — **test only with a backup made**
+5. Does audio capture on the mic produce packets on the `C2E6FD01` notify? (AI_RECORD cmds)
 
-## Output esperado
+## Expected output
 
-Por cada acción operada en la app:
+For each action operated in the app:
 - `captures/2026-MM-DD-<badge>-<accion>.pcap`
-- Anotación en bitácora del día con timestamp y acción
-- Análisis con tshark + comparación contra hipótesis del doc protocol-*.md
-- Si discrepancia: actualizar el doc protocol-*.md con findings reales
+- An annotation in the day's log with timestamp and action
+- Analysis with tshark + comparison against the hypotheses in protocol-*.md
+- If a discrepancy: update protocol-*.md with the real findings
 
-## Errores comunes (de experiencia con CatSniffer)
+## Common errors (from CatSniffer experience)
 
-| Síntoma | Causa | Mitigación |
+| Symptom | Cause | Mitigation |
 |---|---|---|
-| FeralRF muestra "no devices" | Firmware no es FeralRF o canal incorrecto | Re-flashear con Catnip; probar canales 37/38/39 |
-| Pierde la conexión a mid-capture | Channel hopping mal seguido | Aumentar prioridad del proceso; correr en máquina dedicada |
-| Wireshark no muestra btatt | Versión vieja de Wireshark | Actualizar a 4.x+ |
-| Paquetes corruptos | Antena dañada o ruido RF | Probar otro CatSniffer; mover a entorno con menos WiFi |
+| FeralRF shows "no devices" | Firmware is not FeralRF or wrong channel | Re-flash with Catnip; try channels 37/38/39 |
+| Loses the connection mid-capture | Channel hopping followed poorly | Raise the process priority; run on a dedicated machine |
+| Wireshark does not show btatt | Old Wireshark version | Update to 4.x+ |
+| Corrupt packets | Damaged antenna or RF noise | Try another CatSniffer; move to an environment with less WiFi |
 
-## Bloqueos al cierre Gate 1
+## Blockers at Gate 1 close
 
-- T5 del Plan 1 (validar FeralRF) **no completado**: requiere CatSniffer físico
-- Esta receta **no probada end-to-end** — se prueba al recibir badges
-- Plan 2 (Track HW) debe incluir como T1: re-correr esta receta con setup completo y actualizar las secciones que requieran corrección
+- T5 of Plan 1 (validate FeralRF) **not completed**: requires the physical CatSniffer
+- This recipe **not tested end-to-end** — it will be tested on receiving the badges
+- Plan 2 (Track HW) should include as T1: re-run this recipe with the full setup and update the sections that need correction

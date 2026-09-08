@@ -1,62 +1,62 @@
-# qix-ble — Robustez de transmisión OTA (2026-08-24)
+# qix-ble — OTA transmission robustness (2026-08-24)
 
-Endurecimiento del cliente BLE para sobrevivir a drops/interferencia (incl. un **jammer
-Bluetooth**) durante los flashes largos (~1MB Qix 0xC0 y el RCSP loader-download).
+Hardening of the BLE client to survive drops/interference (including a **Bluetooth
+jammer**) during the long flashes (~1MB Qix 0xC0 and the RCSP loader-download).
 
-## Contexto
+## Context
 
-En una tanda de vueltas OEM→custom→OEM, con un jammer BT activo cerca, la transmisión se cortaba
-a mitad del flash. El cliente viejo (sin reconexión/resume) dejaba el badge con el SDFILE
-**borrado-a-medias** (erase hecho, write nunca completado) → textos corruptos. Estos cambios hacen
-que un drop se **recupere** en vez de corromper.
+During a batch of OEM→custom→OEM round-trips, with a BT jammer active nearby, the transmission cut out
+midway through the flash. The old client (without reconnect/resume) left the badge with the SDFILE
+**half-erased** (erase done, write never completed) → corrupted texts. These changes make
+a drop **recover** instead of corrupting.
 
-## Cambios
+## Changes
 
-### 1. Retry de conexión + verificación de service discovery (`transport.py`)
-`_connect` ahora es un loop acotado con backoff que envuelve scan → connect → **verificar
-servicios resueltos** → MTU → pair → notify.
-- El badge es BLE-HID: BlueZ paginа/encripta a mitad del discovery y el link suele dropear ahí
-  ("failed to discover services" / "device disconnected"). Eso es un `BleakError` (no
-  `TimeoutError`), que antes **no** se reintentaba y abortaba.
-- `_services_resolved()` trata un cliente "connected" cuya tabla GATT no tiene la write char OTA
-  (`CHAR_FD02_WRITE` Qix / `CHAR_AE01_WRITE` RCSP) como fallo **reintentable** (el caso de
-  servicios vacíos que produce el drop del HID-bond).
-- Entre intentos limpia con `BleakClient.disconnect()` (no el force_disconnect DBus).
-- Env `QIX_CONNECT_ATTEMPTS` (default 4), backoff `min(2*intento, 6)s`.
-- El bloque MTU/pair/notify se extrajo **verbatim** a `_post_connect_setup()`; el pairing
-  fresh-per-connection queda intacto.
+### 1. Connection retry + service-discovery verification (`transport.py`)
+`_connect` is now a bounded loop with backoff that wraps scan → connect → **verify
+resolved services** → MTU → pair → notify.
+- The badge is BLE-HID: BlueZ pages/encrypts midway through discovery and the link usually drops there
+  ("failed to discover services" / "device disconnected"). That is a `BleakError` (not
+  `TimeoutError`), which previously was **not** retried and aborted.
+- `_services_resolved()` treats a "connected" client whose GATT table lacks the OTA write char
+  (`CHAR_FD02_WRITE` Qix / `CHAR_AE01_WRITE` RCSP) as a **retryable** failure (the empty-services
+  case produced by the HID-bond drop).
+- Between attempts it cleans up with `BleakClient.disconnect()` (not the DBus force_disconnect).
+- Env `QIX_CONNECT_ATTEMPTS` (default 4), backoff `min(2*attempt, 6)s`.
+- The MTU/pair/notify block was extracted **verbatim** into `_post_connect_setup()`; the
+  fresh-per-connection pairing stays intact.
 
 ### 2. `reconnect()` (`transport.py`)
-Re-establece el link en el MISMO loop/thread (espejo de `disconnect()`), para reanudar un
-flash/loader-download tras un drop. Hereda el retry+backoff de `_connect`.
+Re-establishes the link on the SAME loop/thread (mirror of `disconnect()`), to resume a
+flash/loader-download after a drop. Inherits the retry+backoff from `_connect`.
 
-### 3. Resume por offset del flash Qix 0xC0 (`update_manager.py`, `cli.py`)
-La OTA Qix es device-driven por offset (`RET_UPDATE`/`0xC3` devuelven el offset del badge), o sea
-**reanudable**. Ante `BleConnectionError`/timeout a mitad de un chunk: `on_reconnect()` →
-`drain()` → re-emitir `REQ_UPDATE` (`_reissue_req_update`) → continuar desde el offset que reporta
-el badge. `flash(on_reconnect=..., max_reconnects=4)`. En el CLI se pasa `on_reconnect=t.reconnect`
-solo cuando NO es el path bootstrap/`--oem` (bootstrap requiere re-correr auth).
+### 3. Offset resume of the Qix 0xC0 flash (`update_manager.py`, `cli.py`)
+The Qix OTA is device-driven by offset (`RET_UPDATE`/`0xC3` return the badge's offset), i.e.
+**resumable**. On `BleConnectionError`/timeout midway through a chunk: `on_reconnect()` →
+`drain()` → re-emit `REQ_UPDATE` (`_reissue_req_update`) → continue from the offset the
+badge reports. `flash(on_reconnect=..., max_reconnects=4)`. In the CLI, `on_reconnect=t.reconnect`
+is passed only when it is NOT the bootstrap/`--oem` path (bootstrap requires re-running auth).
 
-### 4. Pre-flight opt-in: `bredr off` + conn params (`bluez_cleanup.py`, `bond.py`, `cli.py`)
-- `set_bredr_off()`: `sudo -n btmgmt bredr off` (sin password hardcodeado; warnea limpio si
-  necesita pass). Evita que el appearance HID haga que BlueZ pagine classic → Page Timeout.
-- `set_le_conn_interval()`: escribe debugfs `conn_{min,max}_interval / conn_latency /
-  supervision_timeout = 12/12/0/600` (15ms, latency 0) — link rápido y sin skips.
-- Gated por env `QIX_BREDR_OFF=1`. Respeta la regla "NO remover el bond del host" de `bond.py`.
+### 4. Opt-in pre-flight: `bredr off` + conn params (`bluez_cleanup.py`, `bond.py`, `cli.py`)
+- `set_bredr_off()`: `sudo -n btmgmt bredr off` (no hardcoded password; warns cleanly if
+  it needs a pass). Prevents the HID appearance from making BlueZ page classic → Page Timeout.
+- `set_le_conn_interval()`: writes debugfs `conn_{min,max}_interval / conn_latency /
+  supervision_timeout = 12/12/0/600` (15ms, latency 0) — fast link with no skips.
+- Gated by env `QIX_BREDR_OFF=1`. Respects the "do NOT remove the host bond" rule from `bond.py`.
 
-## Uso
+## Usage
 
 ```sh
-# flash robusto (retry + resume + pre-flight bredr off)
+# robust flash (retry + resume + pre-flight bredr off)
 QIX_BREDR_OFF=1 QIX_CONNECT_ATTEMPTS=6 python3 qix.py flash <MAC> firmware.ufw [--oem]
 QIX_BREDR_OFF=1 QIX_CONNECT_ATTEMPTS=6 python3 qix.py rcsp-flash <MAC> loaderdl.ufw --relink-delay 14
 ```
 
-`set_bredr_off()` usa `sudo -n`; para automatizarlo agregá a sudoers:
-`<user> ALL=(root) NOPASSWD: /usr/bin/btmgmt`. Si no, corré `sudo btmgmt bredr off` a mano una vez.
+`set_bredr_off()` uses `sudo -n`; to automate it add to sudoers:
+`<user> ALL=(root) NOPASSWD: /usr/bin/btmgmt`. Otherwise, run `sudo btmgmt bredr off` by hand once.
 
-## Validación
+## Validation
 
-4 vueltas OEM→custom→OEM seguidas por BLE: 8/8 legs OK, 0 crashes, 0 corrupción de textos.
-(El detalle de la firmware vivía en el repo hermano del SDK `e_badge_707_sdk_200`.)
-Suite: 264/264 tests verdes tras los cambios (`cd tools/qix-ble && pytest tests/`).
+4 OEM→custom→OEM round-trips in a row over BLE: 8/8 legs OK, 0 crashes, 0 text corruption.
+(The firmware detail lived in the sibling SDK repo `e_badge_707_sdk_200`.)
+Suite: 264/264 tests green after the changes (`cd tools/qix-ble && pytest tests/`).
