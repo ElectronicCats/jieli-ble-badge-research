@@ -44,12 +44,6 @@ paths below are shown relative to the repo root.
 |---|---|---|
 | `repack-jieli-ufw.sh` | **LEGACY.** Repacks a JieLi BR35 `.ufw` from a `fwunpack_newfw.py` unpack dir (+ per-file overrides) via `wine isd_download.exe` in Docker, with optional chipkey `-key` and Qix wrapper. **The canonical repack path is now `tools/ufw-repack/repack_ufw.py`** (pure Python, no wine/Docker); prefer it. Kept for reference. | `scripts/repack-jieli-ufw.sh <input-unpack-dir> <output-dir> [--override files/X=path ...] [--stage DIR] [--chipkey-bin FILE] [--qix-version X.Y.Z]` |
 
-## Misc
-
-| Script | What it does | Invocation |
-|---|---|---|
-| `mirror-jieli-sdks-to-github.sh` | Mirrors each JieLi SDK clone under `tools/community-re/jieli-sdks/*` to a private GitHub repo: creates the repo (`gh`), adds a `github` remote (leaving `origin` at gitlab.zh-jieli.com), unshallows if needed, and pushes all refs + tags. Idempotent/resumable; logs a TSV summary under `logs/`. | `scripts/mirror-jieli-sdks-to-github.sh [--dry-run] [--limit N] [--only NAME]` |
-
 ## Subdirectories
 
 - `hw-vector-b/` — USB-capture scripts for probing the badge's MaskROM/USB-ISP behavior (`capture.sh`, `poll.sh`, `auto-dump.sh`). See `hw-vector-b/README.md`.
