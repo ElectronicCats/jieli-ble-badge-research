@@ -1,24 +1,24 @@
 # Deprecated M1 patches
 
-Patches que se aplicaron en M1 v1 (2026-05-19/20) pero brickearon el badge al
-flashear. Movidos aquí como referencia histórica; **NO aplicar en builds futuros**.
+Patches that were applied in M1 v1 (2026-05-19/20) but bricked the badge when
+flashed. Moved here as a historical reference; **do NOT apply in future builds**.
 
 ## sdk-ui-disable.patch
-Setea `TCFG_UI_ENABLE=0` en `SDK/apps/watch/board/br35/sdk_config.h`.
-- **Razón del drop**: elimina los init paths que arrancan BLE adv del application FW.
-  Combinado con `m1-rcsp-force-ble.patch` no es suficiente — RCSP linkea símbolos
-  pero no garantiza BLE adv sin UI init.
-- **Evidencia empírica**: an internal post-flash test log (not published) —
-  badge sin BLE adv, sin button wake, sin backlight post-flash.
+Sets `TCFG_UI_ENABLE=0` in `SDK/apps/watch/board/br35/sdk_config.h`.
+- **Reason for the drop**: it removes the init paths that start the application FW's BLE adv.
+  Combined with `m1-rcsp-force-ble.patch` it is not enough — RCSP links the symbols
+  but does not guarantee BLE adv without UI init.
+- **Empirical evidence**: an internal post-flash test log (not published) —
+  badge with no BLE adv, no button wake, no backlight post-flash.
 
 ## sdk-makefile-single-board.patch
-Dropa `board_ac7074_demo.c` y `board_ac707n_csc_demo.c` de `c_SRC_FILES`.
-- **Razón del drop**: housekeeping byte-identical (los .c quitados estaban
-  `#ifdef CONFIG_BOARD_JL{xxx}_DEMO` undefined, emitían 0 bytes igual).
-  Sin valor real; complica el diff M1 v1 vs vanilla SDK sin reducir riesgo.
+Drops `board_ac7074_demo.c` and `board_ac707n_csc_demo.c` from `c_SRC_FILES`.
+- **Reason for the drop**: byte-identical housekeeping (the removed .c files were
+  `#ifdef CONFIG_BOARD_JL{xxx}_DEMO` undefined, they emitted 0 bytes anyway).
+  No real value; it complicates the M1 v1 vs vanilla SDK diff without reducing risk.
 
-## Reemplazo
+## Replacement
 
-M1 v2 (2026-05-21) usa `e_badge_707_sdk_200/board_ac707n_csc_demo` con
-`TCFG_UI_ENABLE=1` y selecciona ST77916 explícitamente. Ver
+M1 v2 (2026-05-21) uses `e_badge_707_sdk_200/board_ac707n_csc_demo` with
+`TCFG_UI_ENABLE=1` and selects ST77916 explicitly. See
 `docs/superpowers/specs/2026-05-21-m1-v2-safe-build-design.md`.

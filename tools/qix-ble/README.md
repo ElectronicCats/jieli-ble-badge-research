@@ -1,68 +1,68 @@
-# qix-ble — cliente BLE para badges JieLi (Qix + RCSP)
+# qix-ble — BLE client for JieLi badges (Qix + RCSP)
 
-Cliente Python para hablar con el e-badge JieLi AC707N/BR35 "E87" por BLE. Es el
-**cliente principal** del repo: cubre el protocolo Qix (app oficial, service FD00),
-el protocolo nativo JieLi RCSP (service AE00), el handshake de auth de 6 pasos, OTA
-flash, el stager raw-flash de particiones, y utilidades de bind / health-dump.
+Python client for talking to the JieLi AC707N/BR35 "E87" e-badge over BLE. It is the
+**main client** in the repo: it covers the Qix protocol (official app, service FD00),
+the native JieLi RCSP protocol (service AE00), the 6-step auth handshake, OTA
+flash, the partition raw-flash stager, and bind / health-dump utilities.
 
-Spec de diseño original: `docs/superpowers/specs/2026-05-06-qix-ble-client-design.md`.
-Endurecimiento de la transmisión OTA (reconexión + resume): ver `ROBUSTNESS.md`.
+Original design spec: `docs/superpowers/specs/2026-05-06-qix-ble-client-design.md`.
+OTA transmission hardening (reconnect + resume): see `ROBUSTNESS.md`.
 
 ## Install
 
-Instalación editable desde la raíz del repo:
+Editable install from the repo root:
 
 ```bash
-# runtime + tests (bleak, cryptography, dbus-fast en Linux, pytest)
+# runtime + tests (bleak, cryptography, dbus-fast on Linux, pytest)
 pip install --user -e "tools/qix-ble[dev]"
 
-# si vas a usar los subcomandos `push` (image/video/text/pattern/bootanim)
-# necesitás además el extra `media` (Pillow + numpy):
+# if you are going to use the `push` subcommands (image/video/text/pattern/bootanim)
+# you also need the `media` extra (Pillow + numpy):
 pip install --user -e "tools/qix-ble[dev,media]"
 ```
 
-Dependencias declaradas en `pyproject.toml`:
-- runtime: `bleak>=0.21`, `cryptography>=42`, `dbus-fast>=2` (solo Linux — lo usa
-  `bluez_cleanup.py` para limpiar conexiones zombie de BlueZ).
-- extra `media`: `Pillow>=10`, `numpy>=1.26` (generación de imagen/video/AVI para `push`).
-- extra `dev`: `pytest>=7`.
+Dependencies declared in `pyproject.toml`:
+- runtime: `bleak>=0.21`, `cryptography>=42`, `dbus-fast>=2` (Linux only — used by
+  `bluez_cleanup.py` to clean up BlueZ zombie connections).
+- `media` extra: `Pillow>=10`, `numpy>=1.26` (image/video/AVI generation for `push`).
+- `dev` extra: `pytest>=7`.
 
-Invocación del CLI (dos formas equivalentes):
+CLI invocation (two equivalent forms):
 
 ```bash
-qix …                         # si ~/.local/bin está en PATH (console_script del pyproject)
-python tools/qix-ble/qix.py … # entry point directo, sin instalar el script
+qix …                         # if ~/.local/bin is on PATH (console_script from pyproject)
+python tools/qix-ble/qix.py … # direct entry point, without installing the script
 ```
 
-El primer argumento posicional de casi todos los subcomandos es la `MAC` del badge
-(descubrila con `qix scan`).
+The first positional argument of almost every subcommand is the badge's `MAC`
+(discover it with `qix scan`).
 
-## Flags globales
+## Global flags
 
 ```bash
 [-v | -vv]         # -v = INFO, -vv = DEBUG
-[--log <path>]     # tee de los logs a un archivo
+[--log <path>]     # tee the logs to a file
 ```
 
-## Subcomandos
+## Subcommands
 
-### Descubrimiento e info
+### Discovery and info
 
 ```bash
-qix scan [--timeout 10] [--all]              # --all = no filtrar por SERVICE_UUID Qix
+qix scan [--timeout 10] [--all]              # --all = do not filter by Qix SERVICE_UUID
 qix info <mac> [--timeout 5]                 # REQ_BADGE_INFO (Qix cmd 0xC6 → 0xC7)
-qix listen <mac> [--timeout 60]             # imprime cada frame recibido (pasivo)
-qix auth <mac> [--timeout 5]                # handshake JieLi RCSP de 6 pasos aislado
+qix listen <mac> [--timeout 60]             # prints every received frame (passive)
+qix auth <mac> [--timeout 5]                # isolated 6-step JieLi RCSP handshake
 qix bootstrap <mac> [--timeout] [--json]    # Phase 1-5 community bootstrap (post-auth)
 qix sysinfo <mac> [--kind {target,sys,both}] [--json]   # RCSP target_info 0x03 + sys_info 0x07
 qix battery <mac> [--json] [--sysinfo] [--legacy] [--no-bootstrap]
 ```
 
-`battery` por default usa el device-push (cmd 0x27) tras auth+bootstrap (path correcto
-para el E87 OEM). `--sysinfo` y `--legacy` son paths alternativos que NO funcionan en
-este firmware (dejados para otros SDKs).
+`battery` by default uses the device-push (cmd 0x27) after auth+bootstrap (the correct path
+for the E87 OEM). `--sysinfo` and `--legacy` are alternative paths that do NOT work on
+this firmware (kept for other SDKs).
 
-### Bind / health (app oficial)
+### Bind / health (official app)
 
 ```bash
 qix bind <mac> [--lang {zh,en}] [--hour12] [--device-id N] [--json] [--no-bootstrap]
@@ -71,31 +71,31 @@ qix dump-health <mac> [--types steps,sleep,hr,pressure,oxygen,battery|all] \
     [--bootstrap] [--json] [--timeout 10] [--total-timeout 60]
 ```
 
-### Push de contenido (necesita el extra `media`)
+### Content push (needs the `media` extra)
 
 ```bash
 qix push image  <mac> <path> [--width 360] [--height 360] [--fit cover|contain|stretch] [--zoom 1.0] [--name qix_upload]
 qix push video  <mac> <path> [--fps 12] [--duration S]        # GIF/APNG/WebP/AVI
 qix push text   <mac> "<text>" [--mode scroll|static|pulse|wave] [--font-size 64] [--bold] [--font file.ttf]
 qix push pattern <mac> {gradient|pulse|checker|rainbow|wave|plasma_waves|concentric_waves} [--frames 60]
-qix push bootanim <mac> <path> [--query-only]  # EXPERIMENTAL, RGB565 raw — usar --query-only primero
+qix push bootanim <mac> <path> [--query-only]  # EXPERIMENTAL, RGB565 raw — use --query-only first
 ```
 
-### Dump de flash/RAM (test-mode)
+### Flash/RAM dump (test-mode)
 
 ```bash
 qix dump <mac> --type {flash|memory|ram} --length 0x2000000 --output dump.bin \
     [--addr 0] [--chunk-size 256] [--auth] [--bootstrap]
 ```
 
-En el E87 production, `--auth --bootstrap` son empíricamente necesarios para desbloquear
-los comandos TEST_GET_* (SET_TEST_MODE 0xA0 está gated sin bootstrap).
+On the E87 production, `--auth --bootstrap` are empirically required to unlock
+the TEST_GET_* commands (SET_TEST_MODE 0xA0 is gated without bootstrap).
 
-### Comandos crudos (debug / probe)
+### Raw commands (debug / probe)
 
 ```bash
-qix raw <mac> <cmd_hex> [<payload_hex>]                 # frame Qix arbitrario
-qix raw-rcsp <mac> <flag_hex> <cmd_hex> [<payload_hex>] [--no-auth]   # frame RCSP arbitrario a AE01
+qix raw <mac> <cmd_hex> [<payload_hex>]                 # arbitrary Qix frame
+qix raw-rcsp <mac> <flag_hex> <cmd_hex> [<payload_hex>] [--no-auth]   # arbitrary RCSP frame to AE01
 ```
 
 ### Filesystem (post-auth, RCSP AE00)
@@ -108,34 +108,34 @@ qix fs get <mac> <id_hex> --dev USB|SD0|SD1|FLASH --output file.bin
 ### Flash / OTA
 
 ```bash
-# OTA Qix (app oficial, service FD00) — .ufw con wrapper Qix de 27 bytes
+# Qix OTA (official app, service FD00) — .ufw with 27-byte Qix wrapper
 qix flash <mac> <wrapped.ufw> [--no-validate] [--probe-only] [--oem] [--bootstrap] [--req-timeout S]
 
-# OTA nativa JieLi RCSP (service AE00) — para builds del SDK (EC-BADGE); .ufw SIN wrapper Qix
+# native JieLi RCSP OTA (service AE00) — for SDK builds (EC-BADGE); .ufw WITHOUT Qix wrapper
 qix rcsp-flash <mac> <update.ufw> [--probe-only] [--no-auth] [--json] [--relink-delay 10]
 ```
 
-- `--probe-only` (ambos) hace ZERO escritura a flash: solo el handshake de negociación;
-  exit 0 si el badge acepta el `.ufw`, 3 si lo rechaza.
-- `qix flash --oem` = auth+bootstrap + timeout largo de REQ_UPDATE (~15s): usarlo para el
-  primer flash sobre un badge stock (que reacciona lento).
+- `--probe-only` (both) does ZERO writes to flash: only the negotiation handshake;
+  exit 0 if the badge accepts the `.ufw`, 3 if it rejects it.
+- `qix flash --oem` = auth+bootstrap + long REQ_UPDATE timeout (~15s): use it for the
+  first flash over a stock badge (which reacts slowly).
 
-### Stager raw-flash (loader custom cargado)
+### Raw-flash stager (custom loader loaded)
 
-Requieren que el badge esté corriendo la firmware STAGER (servicio 0xD0..0xD4):
+These require the badge to be running the STAGER firmware (service 0xD0..0xD4):
 
 ```bash
 qix rawflash    <mac> <file> --addr {0x17E000|ui_res|virfat|data} [--chunk 224] [--no-erase] [--verify] [--reboot]
-qix stager-read <mac> {0x17E000|ui_res|virfat|data} <length> [--timeout 6]     # no destructivo
-qix stager-apply <mac> <addr> <length>                                          # aplica un code .ufw staged (0xD4) → uboot → reboot
+qix stager-read <mac> {0x17E000|ui_res|virfat|data} <length> [--timeout 6]     # non-destructive
+qix stager-apply <mac> <addr> <length>                                          # applies a staged code .ufw (0xD4) → uboot → reboot
 qix deploy-fw   <mac> <code.ufw> [--resources flash2.bin] [--staging-addr 0x2F0000] [--chunk 224] [--verify]
 qix patchflash  <mac> <file> --addr 0x300000 [--chunk 160] [--no-erase] [--no-bootstrap]
 ```
 
-`deploy-fw` es el one-shot loader→custom: opcionalmente flashea recursos a `ui_res`,
-stagea el code `.ufw` (el wrapper Qix de 27 bytes se auto-strippea) y hace apply.
+`deploy-fw` is the one-shot loader→custom: it optionally flashes resources to `ui_res`,
+stages the code `.ufw` (the 27-byte Qix wrapper is auto-stripped) and does the apply.
 
-### Provision (OEM → custom en un comando)
+### Provision (OEM → custom in one command)
 
 ```bash
 qix provision <mac> --loader dumps/loader_in_jack.ufw \
@@ -143,34 +143,34 @@ qix provision <mac> --loader dumps/loader_in_jack.ufw \
     [--staging-addr 0x2F0000] [--reboot-timeout 90] [--no-final-reboot]
 ```
 
-Phase 1 flashea el loader por el path OEM lcflash (auth+bootstrap+REQ_UPDATE), espera el
-reboot, y Phase 2 usa el stager (0xD0-0xD4) para escribir contenido y/o stagear+aplicar la
-firmware custom. `--content` es repetible; `ADDR` es hex o nombre de partición
-(`ui_res`/`virfat`/`data`), ej. `gatito.bin@0x200000`.
+Phase 1 flashes the loader via the OEM lcflash path (auth+bootstrap+REQ_UPDATE), waits for the
+reboot, and Phase 2 uses the stager (0xD0-0xD4) to write content and/or stage+apply the
+custom firmware. `--content` is repeatable; `ADDR` is hex or a partition name
+(`ui_res`/`virfat`/`data`), e.g. `gatito.bin@0x200000`.
 
-### Housekeeping BlueZ (Linux)
+### BlueZ housekeeping (Linux)
 
 ```bash
-qix bond    <mac> [--retries 5] [--timeout 20]   # bond persistente+trusted (correr 1 vez antes de rcsp-flash)
+qix bond    <mac> [--retries 5] [--timeout 20]   # persistent+trusted bond (run once before rcsp-flash)
 qix cleanup <mac> [--remove]                     # Device1.Disconnect() zombie; --remove = RemoveDevice()
-qix soft-reset <mac> [--via-ota --ufw <wrapped.ufw>]   # reboot del SoC (alias deprecado: `reset`)
+qix soft-reset <mac> [--via-ota --ufw <wrapped.ufw>]   # SoC reboot (deprecated alias: `reset`)
 ```
 
-`qix soft-reset --via-ota` (recomendado en E87 OEM production): hace el handshake
-REQ_UPDATE y se desconecta; el badge se resetea por timeout OTA en ~5-30s, sin escribir
-nada a flash. `qix soft-reset` a secas usa cmd 0xA8 TEST_RESTART, que está gated en el
+`qix soft-reset --via-ota` (recommended on E87 OEM production): does the
+REQ_UPDATE handshake and disconnects; the badge resets on OTA timeout in ~5-30s, without writing
+anything to flash. Plain `qix soft-reset` uses cmd 0xA8 TEST_RESTART, which is gated on the
 E87 OEM.
 
-## Variables de entorno (transporte / pairing)
+## Environment variables (transport / pairing)
 
-- `QIX_CONNECT_ATTEMPTS` (default 4) — rondas de retry de conexión con backoff.
-- `QIX_BREDR_OFF=1` — pre-flight opt-in: `sudo -n btmgmt bredr off` + conn params ajustados
-  (evita que el appearance HID haga que BlueZ pagine classic → Page Timeout). Ver `ROBUSTNESS.md`.
-- `QIX_PAIR` / `QIX_NO_PAIR` — fuerza / desactiva el pairing Just-Works fresco en la conexión
-  (el badge es BLE-HID y solo encripta tras pairing; usado por `rcsp-flash`, `rawflash`, etc.).
-- `QIX_FLASH_PAIR=1` — habilita ese pairing fresco también en `qix flash` (off por default para
-  no tocar el path OEM→custom probado).
-- `QIX_CONNECT_BY_ADDR=1` — conectar por dirección en vez de por objeto scaneado.
+- `QIX_CONNECT_ATTEMPTS` (default 4) — connection retry rounds with backoff.
+- `QIX_BREDR_OFF=1` — opt-in pre-flight: `sudo -n btmgmt bredr off` + adjusted conn params
+  (prevents the HID appearance from making BlueZ page classic → Page Timeout). See `ROBUSTNESS.md`.
+- `QIX_PAIR` / `QIX_NO_PAIR` — force / disable the fresh Just-Works pairing on the connection
+  (the badge is BLE-HID and only encrypts after pairing; used by `rcsp-flash`, `rawflash`, etc.).
+- `QIX_FLASH_PAIR=1` — enables that fresh pairing in `qix flash` too (off by default so as
+  not to touch the proven OEM→custom path).
+- `QIX_CONNECT_BY_ADDR=1` — connect by address instead of by scanned object.
 
 ## Tests
 
@@ -178,5 +178,5 @@ E87 OEM.
 cd tools/qix-ble && pytest tests/ -v
 ```
 
-264 tests: frame/RCSP layer + auth + bind + upload + state machines de OTA/stager con
-transport mockeado. NO hay tests del transport BLE real (requiere HW).
+264 tests: frame/RCSP layer + auth + bind + upload + OTA/stager state machines with
+mocked transport. There are NO tests of the real BLE transport (requires HW).
