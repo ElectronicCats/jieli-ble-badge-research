@@ -3,8 +3,7 @@
 Cliente Python para hablar con el e-badge JieLi AC707N/BR35 "E87" por BLE. Es el
 **cliente principal** del repo: cubre el protocolo Qix (app oficial, service FD00),
 el protocolo nativo JieLi RCSP (service AE00), el handshake de auth de 6 pasos, OTA
-flash, el stager raw-flash de particiones, y utilidades de bind / health-dump / OTA
-cloud check.
+flash, el stager raw-flash de particiones, y utilidades de bind / health-dump.
 
 Spec de diseño original: `docs/superpowers/specs/2026-05-06-qix-ble-client-design.md`.
 Endurecimiento de la transmisión OTA (reconexión + resume): ver `ROBUSTNESS.md`.
