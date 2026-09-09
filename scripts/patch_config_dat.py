@@ -15,6 +15,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# `jltech` comes from the external jl-misctools mirror when it is present, and
+# otherwise from the pure-Python copy vendored in tools/ufw-repack/ — so this
+# script runs from a bare clone with nothing extra installed.
+sys.path.insert(0, str(ROOT / "tools/ufw-repack"))
 sys.path.insert(0, str(ROOT / "tools/community-re/jl-misctools/firmware"))
 from jltech.crc import jl_crc16
 
