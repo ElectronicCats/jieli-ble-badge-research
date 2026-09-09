@@ -67,8 +67,13 @@ import struct
 import sys
 from pathlib import Path
 
-# Make jl-misctools importable
+# Make `jltech` importable: prefer the external jl-misctools mirror when it is
+# present, and fall back to the pure-Python copy vendored in tools/ufw-repack/,
+# so this script runs from a bare clone with nothing extra installed.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_VENDORED = _REPO_ROOT / "tools" / "ufw-repack"
+if str(_VENDORED) not in sys.path:
+    sys.path.insert(0, str(_VENDORED))
 _JLMISC = _REPO_ROOT / "tools" / "community-re" / "jl-misctools" / "firmware"
 if str(_JLMISC) not in sys.path:
     sys.path.insert(0, str(_JLMISC))
