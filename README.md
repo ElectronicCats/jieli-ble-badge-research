@@ -43,7 +43,7 @@ OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-
 | `scripts/` | Build & utility CLIs — JieLi SDK build, UFW repack, chipkey inject, HW capture. See `scripts/README.md`. |
 | `patches/` | JieLi-SDK `.patch` files: `badge/` (the badge-menu firmware, applied on the SDK submodule — see `patches/badge/README.md`), `m1/` (active feature patches), `deprecated/` (archived). |
 | `firmware/` | The self-built custom firmware (`custom-fw-ac707n.ufw`). |
-| `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build) + upstream-contribution notes. |
+| `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build, OTA, lock-screen image) + upstream-contribution notes. |
 
 ## Tools (`tools/`)
 
@@ -83,6 +83,9 @@ cipher copies so it runs without that mirror present.
   ( cd tools/community-re/jieli-sdks/e_badge_707_sdk_200/SDK && make clean && BADGE_CHIPKEY=9847 make MENU=1 )
   ```
   (The `scripts/build-jieli-ac707n*.sh` helpers + `patches/m1/` set remain for the vanilla/M1 variants.)
+- **Update the lock-screen image** (over BLE, no reflash): `tools/make_lockimg.py` +
+  `qix rawflash <MAC> lockimg.bin --addr 0x300000 --verify --reboot`. See
+  **[docs/lock-image.md](docs/lock-image.md)**.
 - **Repack / inject into a UFW**: `tools/ufw-repack/` (pure Python).
 - **USB recovery** (if a flash bricks the display path): write a byte-exact dump of
   **your own** unit back over USB-ISP. The OEM firmware is **not distributed** — dump
