@@ -58,6 +58,43 @@ uboot byte-identically — the resident OEM uboot is what performs the CODE rewr
 **not** flash a raw SDK `make` image (native uboot) as the OTA payload / recovery — the native uboot
 cannot do the OTA CODE-write and the badge bricks silently at apply.
 
+### Rebuilding the image from a fresh `app.bin`
+
+`firmware/custom-fw-ac707n.ufw` is the packaged OTA image; the SDK build only emits a raw
+`app.bin` (its own `update.ufw` carries the native uboot and is **not** OTA-flashable). To roll a
+new build into the OTA image, splice your freshly-built `app.bin` into **an existing copy of
+`firmware/custom-fw-ac707n.ufw`** (reused as the base — it already carries the OEM uboot, flash
+geometry, and the `bcaf` Qix wrapper). `swap_app.py` does a code-only replace and recomputes every
+CRC (JLFS `app.bin`, `app_area_head`, `flash.bin`, the list/header, and the Qix wrapper), so the
+output is flash-ready — no separate `wrap_qix.py` step:
+
+The crypto/CRC helpers `swap_app.py` needs are **vendored** in `tools/ufw-repack/jltech/` (pure
+Python — no `jl-misctools` checkout and no `crcmod`), so it runs from this repo with nothing extra
+on the `PYTHONPATH`. Just point `APP` at your freshly-built `app.bin` (after a submodule build it is
+at `tools/community-re/jieli-sdks/e_badge_707_sdk_200/SDK/cpu/br35/tools/app.bin`), then run from
+the repo root:
+
+```sh
+APP=/path/to/SDK/cpu/br35/tools/app.bin
+
+python3 tools/ufw-repack/swap_app.py \
+  firmware/custom-fw-ac707n.ufw \
+  "$APP" \
+  firmware/custom-fw-ac707n.ufw
+```
+
+`swap_app.py <base.ufw> <app.bin> <out.ufw>`: it reads `firmware/custom-fw-ac707n.ufw` as the
+OEM-geometry **base**, splices in your **`$APP`**, and writes the packaged image back to
+`firmware/custom-fw-ac707n.ufw` (**the deliverable**). The base is read fully before the output is
+written, so reusing the same path (in-place update) is safe — pass a different third argument if you
+want to keep the previous image. (No inline `#` comments inside the command: an inline comment after
+a `\` breaks the line continuation and the shell then tries to run the `.bin`/`.ufw` as a command.)
+
+`swap_app.py` prints the OEM app slot size (~995 KB) and 0xFF-pads the tail; your `app.bin` must
+fit it. The output size stays `1 079 363 B`. Two builds of the same source differ only in the
+embedded `__TIME__`/`__LINE__` bytes plus the CRCs that cover them — a byte-different `.ufw` with
+the same size is expected (don't compare by `sha256`). Then flash it per §2 / §3.
+
 ---
 
 ## 2. OEM → custom

@@ -14,7 +14,10 @@ venv/
 
 # ── Heavy / machine-specific toolchains (fetched by setup scripts) ───────────
 tools/jieli-toolchain/
-tools/community-re/
+tools/community-re/*
+!tools/community-re/jieli-sdks
+tools/community-re/jieli-sdks/*
+!tools/community-re/jieli-sdks/e_badge_707_sdk_200
 tools/ghidra/
 tools/GhidraMCP/
 

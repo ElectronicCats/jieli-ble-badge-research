@@ -16,6 +16,30 @@ Presented at **DragonJarCon** (BSides LatAm) —
 The research started from **DragonJAR SAS**'s APK-auditing skill
 ([Android-Pentesting-Skill](https://github.com/DragonJAR/Android-Pentesting-Skill)).
 
+## Custom firmware features
+
+The **DragonJAR badge** runs this custom firmware to explore and experiment with Bluetooth —
+research tools plus an on-device UI driven entirely from the badge. Its features:
+
+- **Bluetooth Spoofing** — pick a detected BLE device and clone its advertisement, for
+  experimentation and auditing.
+- **Bluetooth Mouse** — the badge acts as a BLE-HID mouse (the touchscreen is the trackpad) to
+  drive compatible hosts.
+- **Bluetooth Scanner** — scans nearby BLE devices; pick one to browse its GATT services and
+  characteristics.
+- **Interactive GUI** — LVGL touch menu with direct access to the Bluetooth tools and the device
+  settings.
+- **Physical-button navigation** — move between options, select, and go back using the badge's
+  buttons.
+- **Lock screen with gesture** — on wake from suspend it shows a lock screen, unlocked with a touch
+  gesture (a swipe). The wallpaper is updatable over BLE — see
+  [docs/lock-image.md](docs/lock-image.md).
+- **Suspend** — the device suspends and wakes on any physical button.
+- **Brightness** — adjustable from the settings menu.
+- **Update mode** — an option to enter firmware-update mode (BLE OTA).
+- **Open research firmware** — part of a JieLi e-badge reverse-engineering project, with the tools
+  and docs published here to explore how it works and build on it.
+
 ## The result (the chain that works)
 
 The OEM badge only exposes an **app-only** BLE OTA (the path the ZRun app uses). This
@@ -41,9 +65,9 @@ OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-
 |---|---|
 | `tools/` | Standalone tools + BLE client libraries (see table). |
 | `scripts/` | Build & utility CLIs — JieLi SDK build, UFW repack, chipkey inject, HW capture. See `scripts/README.md`. |
-| `patches/` | Incremental JieLi-SDK `.patch` files (`m1/` active, `deprecated/` archived). |
+| `patches/` | JieLi-SDK `.patch` files: `badge/` (the badge-menu firmware, applied on the SDK submodule — see `patches/badge/README.md`), `m1/` (active feature patches), `deprecated/` (archived). |
 | `firmware/` | The self-built custom firmware (`custom-fw-ac707n.ufw`). |
-| `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build) + upstream-contribution notes. |
+| `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build, OTA, lock-screen image) + upstream-contribution notes. |
 
 ## Tools (`tools/`)
 
@@ -72,8 +96,20 @@ cipher copies so it runs without that mirror present.
   `qix flash <MAC> firmware/custom-fw-ac707n.ufw --oem`. Full command reference and
   prerequisites: **[docs/ota-howto.md](docs/ota-howto.md)**. (The legacy `qix provision` /
   `deploy-fw` STAGER chain is no longer used — see the doc.)
-- **Build firmware**: the JieLi SDK lives outside this repo; build with the
-  `scripts/build-jieli-ac707n*.sh` helpers and the `patches/m1/` patch set.
+- **Build firmware**: the JieLi SDK is the git submodule at
+  `tools/community-re/jieli-sdks/e_badge_707_sdk_200` (JieLi's private GitLab, pinned at the vanilla
+  `main` commit — obtained separately, never redistributed). Init it, apply the badge patch, and
+  build — full steps in **[patches/badge/README.md](patches/badge/README.md)**:
+  ```sh
+  git submodule update --init tools/community-re/jieli-sdks/e_badge_707_sdk_200
+  git -C tools/community-re/jieli-sdks/e_badge_707_sdk_200 apply "$PWD/patches/badge/badge-menu.patch"
+  export PATH="/opt/jieli/pi32v2/bin:$PATH" && ulimit -n 65536
+  ( cd tools/community-re/jieli-sdks/e_badge_707_sdk_200/SDK && make clean && BADGE_CHIPKEY=9847 make MENU=1 )
+  ```
+  (The `scripts/build-jieli-ac707n*.sh` helpers + `patches/m1/` set remain for the vanilla/M1 variants.)
+- **Update the lock-screen image** (over BLE, no reflash): `tools/make_lockimg.py` +
+  `qix rawflash <MAC> lockimg.bin --addr 0x300000 --verify --reboot`. See
+  **[docs/lock-image.md](docs/lock-image.md)**.
 - **Repack / inject into a UFW**: `tools/ufw-repack/` (pure Python).
 - **USB recovery** (if a flash bricks the display path): write a byte-exact dump of
   **your own** unit back over USB-ISP. The OEM firmware is **not distributed** — dump
