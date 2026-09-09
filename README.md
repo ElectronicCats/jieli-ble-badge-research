@@ -47,16 +47,16 @@ research tools plus an on-device UI driven entirely from the badge. Its features
   prerequisites: **[docs/ota-howto.md](docs/ota-howto.md)**. (The legacy `qix provision` /
   `deploy-fw` STAGER chain is no longer used — see the doc.)
 
-## Build firmware**: the JieLi SDK is the git submodule at
-  `tools/community-re/jieli-sdks/e_badge_707_sdk_200` (JieLi's private GitLab, pinned at the vanilla
-  `main` commit — obtained separately, never redistributed). Init it, apply the badge patch, and
-  build — full steps in **[patches/badge/README.md](patches/badge/README.md)**:
+- **Build the firmware from source** — two commands, on Linux:
   ```sh
-  git submodule update --init tools/community-re/jieli-sdks/e_badge_707_sdk_200
-  git -C tools/community-re/jieli-sdks/e_badge_707_sdk_200 apply "$PWD/patches/badge/badge-menu.patch"
-  export PATH="/opt/jieli/pi32v2/bin:$PATH" && ulimit -n 65536
-  ( cd tools/community-re/jieli-sdks/e_badge_707_sdk_200/SDK && make clean && BADGE_CHIPKEY=9847 make MENU=1 )
+  scripts/setup-badge-build.sh      # once: toolchain + SDK + patch + post-build tools + chipkey
+  scripts/build-badge-fw.sh --ota   # each build: app.bin + a flashable BLE-OTA .ufw
   ```
+  The custom firmware lives as a patch (`patches/badge/badge-menu.patch`) on top of the vanilla
+  JieLi SDK, which is the git submodule at `tools/community-re/jieli-sdks/e_badge_707_sdk_200`
+  (pinned at the vanilla `main` commit and **clonable anonymously** from JieLi's GitLab — never
+  redistributed from here). Full guide, provenance of every downloaded piece, and a
+  troubleshooting table: **[docs/build-badge-firmware.md](docs/build-badge-firmware.md)**.
   (The `scripts/build-jieli-ac707n*.sh` helpers + `patches/m1/` set remain for the vanilla/M1 variants.)
 - **Update the lock-screen image** (over BLE, no reflash): `tools/make_lockimg.py` +
   `qix rawflash <MAC> lockimg.bin --addr 0x300000 --verify --reboot`. See
@@ -94,7 +94,7 @@ OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-
 | `scripts/` | Build & utility CLIs — JieLi SDK build, UFW repack, chipkey inject, HW capture. See `scripts/README.md`. |
 | `patches/` | JieLi-SDK `.patch` files: `badge/` (the badge-menu firmware, applied on the SDK submodule — see `patches/badge/README.md`), `m1/` (active feature patches), `deprecated/` (archived). |
 | `firmware/` | The self-built custom firmware (`custom-fw-ac707n.ufw`). |
-| `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build, OTA, lock-screen image) + upstream-contribution notes. |
+| `docs/` | Chip-level how-tos — **[building the badge firmware](docs/build-badge-firmware.md)**, vanilla SDK build, BLE capture, M1 build, OTA, lock-screen image — + upstream-contribution notes. |
 
 ## Tools (`tools/`)
 

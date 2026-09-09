@@ -16255,19 +16255,6 @@ index 8b6e87e..32869c0 100644
  	$(QUITE) $(LD) -o $(OUT_ELF) @$(OBJ_FILE) $(LFLAGS) $(LIBPATHS) $(LIBS)
  else
  $(OUT_ELF): $(OBJS)
-diff --git a/SDK/build/fileList.dumy b/SDK/build/fileList.dumy
-index 03d3cfb..4c73ff8 100644
---- a/SDK/build/fileList.dumy
-+++ b/SDK/build/fileList.dumy
-@@ -63,7 +63,7 @@ c_SRC_FILES += apps/common/third_party_profile/common/3th_profile_api.c apps/com
- 
- 
- 
--c_SRC_FILES += apps/common/third_party_profile/jieli/rcsp/ble_rcsp_multi_common.c apps/common/third_party_profile/jieli/rcsp/ble_rcsp_server.c apps/common/third_party_profile/jieli/rcsp/ble_rcsp_multi_client.c apps/common/third_party_profile/jieli/rcsp/adv/ble_rcsp_adv.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_config.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_task.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_event.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_manage.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_bt_manage.c
-+c_SRC_FILES += apps/common/third_party_profile/jieli/rcsp/ble_rcsp_multi_common.c apps/common/third_party_profile/jieli/rcsp/ble_rcsp_server.c apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c apps/common/third_party_profile/jieli/rcsp/ble_rcsp_multi_client.c apps/common/third_party_profile/jieli/rcsp/adv/ble_rcsp_adv.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_config.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_task.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_event.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_manage.c apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp_bt_manage.c
- c_SRC_FILES += apps/common/third_party_profile/jieli/rcsp/server/rcsp_cmd_recieve.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_cmd_recieve_no_respone.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_cmd_respone.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_data_recieve.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_data_recieve_no_respone.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_data_respone.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_cmd_user.c apps/common/third_party_profile/jieli/rcsp/server/rcsp_command.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_switch_device.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/rcsp_setting_opt.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/rcsp_setting_sync.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/rcsp_adv_bluetooth.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/rcsp_screen_box_earphone_info.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_eq_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_high_low_vol_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_music_info_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_vol_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_color_led_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_karaoke_eq_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_karaoke_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_anc_voice.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_anc_voice_key.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_hearing_aid_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_bt_name_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_key_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_led_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_mic_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_time_stamp_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_work_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_adaptive_noise_reduction.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_ai_no_pick.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_scene_noise_reduction.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_wind_noise_detection.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_voice_enhancement_mode.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/adv_1t2_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_misc_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_misc_reverbration_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_setting_opt/settings/rcsp_misc_drc_setting.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/rcsp_device_feature.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/rcsp_device_status.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/device_status_cmd/rcsp_fm_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/device_status_cmd/rcsp_rtc_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/device_status_cmd/rcsp_music_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/device_status_cmd/rcsp_linein_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/device_info/device_status_cmd/rcsp_bt_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_update/rcsp_update.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_update/rcsp_update_tws.c apps/common/third_party_profile/jieli/rcsp/server/functions/rcsp_update/rcsp_ch_loader_download.c apps/common/third_party_profile/jieli/rcsp/server/functions/external_flash/rcsp_extra_flash_cmd.c apps/common/third_party_profile/jieli/rcsp/server/functions/external_flash/rcsp_extra_flash_opt.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/file_transfer.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/file_delete.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/dev_format.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/file_trans_back.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/file_bluk_trans_prepare.c apps/common/third_party_profile/jieli/rcsp/server/functions/file_transfer/file_simple_transfer.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/sensors_data_opt.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/sport_data_func.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/sensor_log_notify.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/nfc_data_opt.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/sport_info_opt.c apps/common/third_party_profile/jieli/rcsp/server/functions/sensors/sport_info_sync.c apps/common/third_party_profile/jieli/rcsp/server/functions/browser/rcsp_browser.c apps/common/third_party_profile/jieli/rcsp/server/functions/watch_expand/rcsp_watch_info.c apps/common/third_party_profile/jieli/rcsp/server/functions/watch_expand/rcsp_watch_device_config.c apps/common/third_party_profile/jieli/rcsp/server/functions/watch_expand/rcsp_common_info_res_file_handler.c
- c_SRC_FILES += apps/common/third_party_profile/jieli/rcsp/client/rcsp_c_cmd_recieve.c apps/common/third_party_profile/jieli/rcsp/client/rcsp_c_cmd_recieve_no_response.c apps/common/third_party_profile/jieli/rcsp/client/rcsp_c_cmd_response.c apps/common/third_party_profile/jieli/rcsp/client/rcsp_m_update/rcsp_update_master.c
- 
 diff --git a/SDK/build/genFileList.c b/SDK/build/genFileList.c
 index 415f592..4bb9f0a 100644
 --- a/SDK/build/genFileList.c
@@ -16282,7 +16269,7 @@ index 415f592..4bb9f0a 100644
  	apps/common/third_party_profile/jieli/rcsp/adv/ble_rcsp_adv.c \
  	apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp.c \
 diff --git a/SDK/cpu/br35/tools/download.c b/SDK/cpu/br35/tools/download.c
-index 6956fdc..fc85816 100644
+index 6956fdc..4b7c259 100644
 --- a/SDK/cpu/br35/tools/download.c
 +++ b/SDK/cpu/br35/tools/download.c
 @@ -4,6 +4,7 @@
@@ -16312,12 +16299,29 @@ index 6956fdc..fc85816 100644
  
  
  cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data.bin i_ram_data_code.bin > app.bin
-@@ -39,11 +42,46 @@ cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data
+@@ -39,11 +42,75 @@ cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data
  
  /* /opt/utils/strip-ini -i isd_config.ini -o isd_config.ini */
  
-+## Generate the .ufw and .fw firmware images (native Linux tools)
++## Generate the .ufw and .fw firmware images (native Linux tools).
++## POST_TOOL_DIR is exported by SDK/Makefile and points at SDK/tools/linux/.
++## Those 7 binaries do NOT ship with the SDK -- install them with
++## scripts/setup-badge-build.sh (JieLi "linux-postbuild" package, public).
 +TOOL_DIR="${POST_TOOL_DIR}"
++if [ ! -x "${TOOL_DIR}/isd_download" ]; then
++    echo "" >&2
++    echo "=================================================================" >&2
++    echo " download.sh: post-build tools NOT found in ${TOOL_DIR}" >&2
++    echo "" >&2
++    echo " app.bin WAS built -- and app.bin is all the BLE OTA image needs" >&2
++    echo " (feed it to tools/ufw-repack/swap_app.py)." >&2
++    echo " update.ufw / jl_isd.fw (USB flashing) were NOT generated." >&2
++    echo "" >&2
++    echo " To get them: scripts/setup-badge-build.sh" >&2
++    echo "=================================================================" >&2
++    echo "" >&2
++    exit 0
++fi
 +"${TOOL_DIR}/json_to_res" json.txt 2>/dev/null || true
 +
 +if [ -f "download/watch/config.dat" ]; then
@@ -16334,6 +16338,9 @@ index 6956fdc..fc85816 100644
 +fi
 +echo "download.sh: using chipkey ${KEY_ARG:-none}"
 +
++## Drop stale images so a failed run cannot look like a good one.
++rm -f jl_isd.fw jl_isd.bin update.ufw
++
 +"${TOOL_DIR}/isd_download" \
 +    -tonorflash -dev br35 -boot 0x102600 -div8 -wait 300 \
 +    -uboot uboot.boot -app app.bin \
@@ -16344,11 +16351,20 @@ index 6956fdc..fc85816 100644
 +    -output-fw jl_isd.fw \
 +    -output-ufw update.ufw
 +
-+OUTPUT_DIR="../../output"
++## isd_download always finishes by trying a real USB flash and exits 245
++## ("Device Offline") when no badge is plugged in -- that is NOT a failure.
++## So judge the run by the images it wrote, not by its exit code.
++if [ ! -s update.ufw ] || [ ! -s jl_isd.fw ]; then
++    echo "download.sh: ERROR - isd_download produced no update.ufw / jl_isd.fw" >&2
++    exit 1
++fi
++
++OUTPUT_DIR="../../../output"
 +mkdir -p "${OUTPUT_DIR}" 2>/dev/null || true
 +cp -f update.ufw "${OUTPUT_DIR}/update.ufw" 2>/dev/null || true
 +cp -f jl_isd.fw "${OUTPUT_DIR}/jl_isd.fw" 2>/dev/null || true
 +cp -f jl_isd.bin "${OUTPUT_DIR}/jl_isd.bin" 2>/dev/null || true
++echo "download.sh: images written to cpu/br35/tools/ and SDK/output/"
 +
  files="app.bin ota*.bin p11_code.bin isd_config.ini uboot.boot br35loader.bin isd_download.exe flash_params_v*.bin"
  //files="app.bin isd_config.ini"
@@ -17119,10 +17135,10 @@ index 0000000..eed8d99
 +    sys.exit(main())
 diff --git a/docs/BUILD.md b/docs/BUILD.md
 new file mode 100644
-index 0000000..2c1ad27
+index 0000000..7df7ba0
 --- /dev/null
 +++ b/docs/BUILD.md
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,134 @@
 +# Building the badge firmware
 +
 +How the custom badge-menu firmware is built, what the build produces, and the execution order of
@@ -17140,10 +17156,21 @@ index 0000000..2c1ad27
 +  export PATH="/opt/jieli/pi32v2/bin:$PATH"
 +  ```
 +
-+- **Native post-build tools (Linux).** Turning the linked ELF into a flashable image is done by the
-+  native Linux tools vendored in `SDK/tools/linux/` (`isd_download`, `ufw_maker`, `fw_add`,
-+  `packres`, `json_to_res`, `fat_comm`, `remove_tailing_zeros`). The Makefile points `POST_TOOL_DIR`
-+  at them; you do not invoke them by hand.
++- **Native post-build tools (Linux).** Turning the linked ELF into a flashable image is done by 7
++  native Linux tools the Makefile expects in `SDK/tools/linux/` (`isd_download`, `ufw_maker`,
++  `fw_add`, `packres`, `json_to_res`, `fat_comm`, `remove_tailing_zeros`), via `POST_TOOL_DIR`; you
++  do not invoke them by hand. They are **not** part of this SDK (which ships only the Windows
++  `.exe` equivalents) nor of the toolchain: they are JieLi's separate, publicly downloadable
++  *download-directory tools (Linux)* package —
++
++  ```sh
++  curl -fL -o postbuild.tar.xz https://pkgman.jieliapp.com/s/linux-postbuild
++  tar -xJf postbuild.tar.xz --strip-components=1 -C SDK/tools/linux
++  chmod +x SDK/tools/linux/*
++  ```
++
++  Without them the build still produces `app.bin` — which is all the BLE OTA repack needs — and
++  prints a loud notice that `update.ufw` / `jl_isd.fw` were skipped.
 +
 +- **Open-file limit (`ulimit -n`).** The final link opens **all** objects and libraries at once
 +  (~1130 files). If your shell has a low limit (1024 is a common default), `ld` runs out of

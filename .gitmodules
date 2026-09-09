@@ -1,3 +1,14 @@
 [submodule "tools/community-re/jieli-sdks/e_badge_707_sdk_200"]
 	path = tools/community-re/jieli-sdks/e_badge_707_sdk_200
 	url = https://gitlab.zh-jieli.com/e_badge/e_badge_707_sdk_200
+	branch = main
+	# The vanilla JieLi SDK is read-only-clonable anonymously from JieLi's GitLab
+	# (no account needed). It is pinned at the vanilla `main` commit and is never
+	# redistributed from this repo.
+	#
+	# shallow: the full history is ~1.1 GB; --depth 1 is enough to build.
+	shallow = true
+	# ignore=dirty: patches/badge/badge-menu.patch is applied *into* the submodule
+	# worktree, so it is dirty by design while you are building. The pinned commit
+	# is still tracked, so a real SDK bump still shows up in `git status`.
+	ignore = dirty

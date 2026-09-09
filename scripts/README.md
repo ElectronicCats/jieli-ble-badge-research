@@ -7,7 +7,16 @@ All scripts anchor themselves to the repo root via `$(dirname "$0")/..` (bash) o
 `Path(__file__).parents[...]` (python), so they can be invoked from anywhere;
 paths below are shown relative to the repo root.
 
-## Typical order
+## Building the badge firmware (start here)
+
+| Script | What it does | Invocation |
+|---|---|---|
+| `setup-badge-build.sh` | One-shot, idempotent setup of everything the badge build needs: pi32v2 toolchain (delegates to `setup-jieli-toolchain.sh`), the vanilla JieLi SDK submodule (shallow anonymous clone), `patches/badge/badge-menu.patch` applied onto it, the 7 native Linux post-build tools (public `pkgman.jieliapp.com/s/linux-postbuild`, sha256-checked) into `SDK/tools/linux/`, and the chipkey into the SDK download dir. Re-runnable; skips whatever is already in place. | `scripts/setup-badge-build.sh [--chipkey <id>\|none] [--skip-toolchain] [--skip-postbuild]` |
+| `build-badge-fw.sh` | Builds the custom badge-menu firmware (`make MENU=1`), after checking every prerequisite up front and raising `ulimit -n` itself, then verifies the artifacts — so a build that produced nothing cannot report success. With `--ota` it also splices the fresh `app.bin` into a flashable BLE-OTA `.ufw` via `tools/ufw-repack/swap_app.py`. | `scripts/build-badge-fw.sh [--clean] [--chipkey <id>\|none] [--ota [PATH]] [--no-menu]` |
+
+Full guide + troubleshooting: **[docs/build-badge-firmware.md](../docs/build-badge-firmware.md)**.
+
+## Typical order (vanilla / M1 variants)
 
 1. `setup-jieli-toolchain.sh` — install the pi32v2 LLVM toolchain (once).
 2. `setup-jieli-lvgl-port.sh` — assemble `lv_port_pc_vscode/` from JieLi's public LVGL repos (once, only for the `ac707n_watch_lvgl` SDK).
