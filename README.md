@@ -16,6 +16,30 @@ Presented at **DragonJarCon** (BSides LatAm) —
 The research started from **DragonJAR SAS**'s APK-auditing skill
 ([Android-Pentesting-Skill](https://github.com/DragonJAR/Android-Pentesting-Skill)).
 
+## Custom firmware features
+
+The **DragonJAR badge** runs this custom firmware to explore and experiment with Bluetooth —
+research tools plus an on-device UI driven entirely from the badge. Its features:
+
+- **Bluetooth Spoofing** — pick a detected BLE device and clone its advertisement, for
+  experimentation and auditing.
+- **Bluetooth Mouse** — the badge acts as a BLE-HID mouse (the touchscreen is the trackpad) to
+  drive compatible hosts.
+- **Bluetooth Scanner** — scans nearby BLE devices; pick one to browse its GATT services and
+  characteristics.
+- **Interactive GUI** — LVGL touch menu with direct access to the Bluetooth tools and the device
+  settings.
+- **Physical-button navigation** — move between options, select, and go back using the badge's
+  buttons.
+- **Lock screen with gesture** — on wake from suspend it shows a lock screen, unlocked with a touch
+  gesture (a swipe). The wallpaper is updatable over BLE — see
+  [docs/lock-image.md](docs/lock-image.md).
+- **Suspend** — the device suspends and wakes on any physical button.
+- **Brightness** — adjustable from the settings menu.
+- **Update mode** — an option to enter firmware-update mode (BLE OTA).
+- **Open research firmware** — part of a JieLi e-badge reverse-engineering project, with the tools
+  and docs published here to explore how it works and build on it.
+
 ## The result (the chain that works)
 
 The OEM badge only exposes an **app-only** BLE OTA (the path the ZRun app uses). This
