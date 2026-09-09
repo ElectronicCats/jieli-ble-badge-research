@@ -29,10 +29,16 @@ advertised **name** changes `OEM → custom firmware`.
 
 ## 1. Prerequisites (read before any flash)
 
-- **Host:** Linux + BlueZ. Install the client: `pip install -e tools/qix-ble`.
-- **Third-party crypto (`jltech`):** the cipher/CRC/chipkey helpers from `jl-misctools` are
-  **not vendored** (gitignored under `tools/community-re/`). Obtain them separately — the repack
-  and chipkey tooling needs them. See [README](../README.md#third-party-dependency).
+- **Host:** the `qix` client is built on [`bleak`](https://github.com/hbldh/bleak), so the BLE
+  transport works on **Linux (BlueZ), macOS (CoreBluetooth) and Windows (WinRT)**; every
+  BlueZ/DBus helper in it is gated behind `sys.platform == "linux"` and is a no-op elsewhere.
+  **The recipes below are the Linux ones and are what has been validated on hardware** — the
+  `rfkill` / `hciconfig` / `qix cleanup` / `QIX_CONNECT_VIA_DBUS=1` steps are BlueZ workarounds
+  and are neither needed nor available on macOS/Windows, where bleak's native backend manages
+  connection state itself. Install the client: `pip install -e tools/qix-ble`.
+- **Third-party crypto (`jltech`):** vendored as pure Python in `tools/ufw-repack/jltech/` —
+  nothing to obtain, no `crcmod`. Only `scripts/gen_chipkey_keyfile.py` still needs the external
+  `jl-misctools` mirror. See [README](../README.md#dependencies).
 - **Chipkey:** these images embed the device flashing key `0x9847` (E87, PID 1558). A different
   PID needs a different chipkey/`isd_config.ini` — do **not** reuse `0x9847`.
 - **Power:** badge battery **≥ 30 %**, or USB connected for the **whole** flash window. A

@@ -54,7 +54,7 @@ already in place.
 |---|---|---|---|
 | 1 | **pi32v2 toolchain** (JieLi's clang 4.0.1 fork, target `pi32v2 -mcpu=r3`) | `pkgman.jieliapp.com/s/linux-toolchain` (public, no account) | `tools/jieli-toolchain/` + `/opt/jieli` symlink |
 | 2 | **Vanilla JieLi SDK** | `gitlab.zh-jieli.com/e_badge/e_badge_707_sdk_200`, git submodule pinned at `d016768` | `tools/community-re/jieli-sdks/e_badge_707_sdk_200` |
-| 3 | **badge-menu patch** (the actual custom firmware: 49 files, ~15.5 k lines) | this repo, `patches/badge/badge-menu.patch` | applied into the SDK worktree |
+| 3 | **badge-menu patch** (the custom firmware: 49 files, ~4.8 k lines of code plus ~10.7 k lines of embedded image data) | this repo, `patches/badge/badge-menu.patch` | applied into the SDK worktree |
 | 4 | **Native post-build tools** (`isd_download`, `ufw_maker`, `fw_add`, `packres`, `json_to_res`, `fat_comm`, `remove_tailing_zeros`) | `pkgman.jieliapp.com/s/linux-postbuild` (public, no account) | `SDK/tools/linux/` |
 | 5 | **Chipkey** `chipkey_9847.bin` | this repo, `tools/chipkey/` | `SDK/cpu/br35/tools/download/watch/` |
 

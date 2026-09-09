@@ -9,7 +9,11 @@ while making the custom work reproducible.
 ## Files
 
 - `badge-menu.patch` — the source delta (49 text files, `git diff` format, paths rooted at the SDK
-  repo root: `SDK/…`, plus `README.md` and `docs/BUILD.md`). Text sources only.
+  repo root: `SDK/…`, plus `README.md` and `docs/BUILD.md`). Text sources only. Of its ~15.5 k
+  added lines, **~10.7 k are two embedded image headers** (`gatito_logo_rgb565.h`,
+  `lock_wallpaper.h`); the actual code delta is ~4.8 k lines, the bulk of it
+  `SDK/apps/common/ui/lvgl_v8/lvgl_main.c` (+1358: menu, spoofer, mouse, scanner),
+  `qix_ota_server.c` (+577) and `qix_raw_flash.c` (+351).
 
 ## Build
 
