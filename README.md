@@ -41,7 +41,7 @@ OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-
 |---|---|
 | `tools/` | Standalone tools + BLE client libraries (see table). |
 | `scripts/` | Build & utility CLIs — JieLi SDK build, UFW repack, chipkey inject, HW capture. See `scripts/README.md`. |
-| `patches/` | Incremental JieLi-SDK `.patch` files (`m1/` active, `deprecated/` archived). |
+| `patches/` | JieLi-SDK `.patch` files: `badge/` (the badge-menu firmware, applied on the SDK submodule — see `patches/badge/README.md`), `m1/` (active feature patches), `deprecated/` (archived). |
 | `firmware/` | The self-built custom firmware (`custom-fw-ac707n.ufw`). |
 | `docs/` | Chip-level how-tos (SDK build, BLE capture, M1 build) + upstream-contribution notes. |
 
@@ -72,8 +72,17 @@ cipher copies so it runs without that mirror present.
   `qix flash <MAC> firmware/custom-fw-ac707n.ufw --oem`. Full command reference and
   prerequisites: **[docs/ota-howto.md](docs/ota-howto.md)**. (The legacy `qix provision` /
   `deploy-fw` STAGER chain is no longer used — see the doc.)
-- **Build firmware**: the JieLi SDK lives outside this repo; build with the
-  `scripts/build-jieli-ac707n*.sh` helpers and the `patches/m1/` patch set.
+- **Build firmware**: the JieLi SDK is the git submodule at
+  `tools/community-re/jieli-sdks/e_badge_707_sdk_200` (JieLi's private GitLab, pinned at the vanilla
+  `main` commit — obtained separately, never redistributed). Init it, apply the badge patch, and
+  build — full steps in **[patches/badge/README.md](patches/badge/README.md)**:
+  ```sh
+  git submodule update --init tools/community-re/jieli-sdks/e_badge_707_sdk_200
+  git -C tools/community-re/jieli-sdks/e_badge_707_sdk_200 apply "$PWD/patches/badge/badge-menu.patch"
+  export PATH="/opt/jieli/pi32v2/bin:$PATH" && ulimit -n 65536
+  ( cd tools/community-re/jieli-sdks/e_badge_707_sdk_200/SDK && make clean && BADGE_CHIPKEY=9847 make MENU=1 )
+  ```
+  (The `scripts/build-jieli-ac707n*.sh` helpers + `patches/m1/` set remain for the vanilla/M1 variants.)
 - **Repack / inject into a UFW**: `tools/ufw-repack/` (pure Python).
 - **USB recovery** (if a flash bricks the display path): write a byte-exact dump of
   **your own** unit back over USB-ISP. The OEM firmware is **not distributed** — dump

@@ -1,0 +1,3 @@
+[submodule "tools/community-re/jieli-sdks/e_badge_707_sdk_200"]
+	path = tools/community-re/jieli-sdks/e_badge_707_sdk_200
+	url = https://gitlab.zh-jieli.com/e_badge/e_badge_707_sdk_200
