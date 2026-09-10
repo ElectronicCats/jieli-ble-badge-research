@@ -222,6 +222,9 @@ span and is preserved, which is why the restore belongs to your unit. Recovery f
 OEM is just the [OEM → custom](#2-oem--custom) leg again (`qix flash --oem`), so the round
 trip is complete.
 
+> Prefer a pure wired restore (badge on the bench, or partially bricked)? The same dump can be
+> written back **over USB-ISP, without OTA** — see the [restore over USB-ISP](dump-firmware.md#4-restore-over-usb-isp-wired-no-ota) section in [dump-firmware.md](dump-firmware.md).
+
 ---
 
 ## 5. Verify the result

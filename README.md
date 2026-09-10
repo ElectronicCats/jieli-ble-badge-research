@@ -94,9 +94,10 @@ fail *silently*:
 - **The ~1 MB transfer takes several minutes. Do not interrupt it.**
 - **Take a dump of your own unit first.** Recovery means writing a byte-exact dump of *your*
   badge back over USB-ISP, and the **custom → OEM** restore needs your stock image too — no OEM
-  firmware is distributed here. How ([docs/dump-firmware.md](docs/dump-firmware.md), wired /
-  UBOOT, the only non-BLE step). The DIY dongle for that
-  ([`tools/pi-pico-jl-dongle`](tools/pi-pico-jl-dongle)) is still a prototype.
+  firmware is distributed here. How to dump and write it back in
+  [docs/dump-firmware.md](docs/dump-firmware.md) — wired / UBOOT, the only non-BLE step (the
+  DIY dongle for it, [`tools/pi-pico-jl-dongle`](tools/pi-pico-jl-dongle), is still a
+  prototype).
 
 ## Quick start
 
@@ -176,7 +177,7 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 |---|---|
 | [build-badge-firmware.md](docs/build-badge-firmware.md) | **Build the custom firmware from source** — prerequisites, provenance of every downloaded piece, troubleshooting |
 | [ota-howto.md](docs/ota-howto.md) | **Flash it over BLE** — preflight, `OEM → custom`, `custom → custom`, `custom → OEM`, protocol details |
-| [dump-firmware.md](docs/dump-firmware.md) | **Dump your stock firmware** (wired / UBOOT) — the input for the `custom → OEM` restore and USB-ISP recovery |
+| [dump-firmware.md](docs/dump-firmware.md) | **Dump your stock firmware** (wired / UBOOT) and **write it back** — over USB-ISP (no OTA) or as the `custom → OEM` BLE restore |
 | [lock-image.md](docs/lock-image.md) | Update the lock-screen wallpaper over BLE, no reflash |
 | [jieli-sdk-build.md](docs/jieli-sdk-build.md) | The older wine + docker flow for the **vanilla** SDK |
 | [build-m1-firmware.md](docs/build-m1-firmware.md) | The **M1** variant build (a different JieLi target tracked in this repo) |

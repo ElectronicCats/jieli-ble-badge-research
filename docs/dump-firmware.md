@@ -1,10 +1,11 @@
-# Dump the stock OEM firmware (wired, UBOOT)
+# Dump & restore the stock OEM firmware (wired, UBOOT)
 
-How to take a **byte-exact dump** of the badge's 4 MB NOR flash, before flashing any custom
-firmware — the raw material for the [custom → OEM](ota-howto.md#4-custom--oem-restore-the-stock-firmware)
-restore leg and for USB-ISP recovery.
+How to take a **byte-exact dump** of the badge's 4 MB NOR flash before flashing any custom
+firmware — and how to put it back, either **wired over USB-ISP** (no OTA at all, the recovery
+path) or **over BLE** as the [custom → OEM](ota-howto.md#4-custom--oem-restore-the-stock-firmware)
+restore leg.
 
-This is the *only* step of the whole flow that is **not over BLE**: it needs physical access
+All of it is the *only* part of the whole flow that is **not over BLE**: it needs physical access
 to the chip's `DP`/`DM` pads and a way to put it in USB download (UBOOT) mode — a vendor USB
 updater, a DIY adapter such as the prototype [`tools/pi-pico-jl-dongle`](../tools/pi-pico-jl-dongle),
 or a unit that fails to boot on its own.
@@ -16,10 +17,12 @@ or a unit that fails to boot on its own.
 
 ## 1. Why you need a dump
 
-- The **custom → OEM** restore (`qix rcsp-flash`) needs the **stock** image as its input, and
-  **no OEM firmware is distributed here**.
-- A failed OTA can require USB-ISP recovery, which means writing a byte-exact dump of *your*
-  unit back.
+- The **custom → OEM** restore needs the **stock** image as its input — the
+  [BLE leg](#5-restore-over-ble--dump2ufwpy--qix-rcsp-flash) below, or
+  [wired over USB-ISP](#4-restore-over-usb-isp-wired-no-ota) — and **no OEM firmware is
+  distributed here**.
+- A failed OTA or a bricked flash means writing a byte-exact dump of *your* unit back: that is
+  exactly the wired [restore over USB-ISP](#4-restore-over-usb-isp-wired-no-ota).
 - The dump is **per-unit**: it carries `key_mac` and the stock name. **Take it from your own
   badge, *before* the first custom flash** — once the unit runs the custom firmware you can no
   longer dump the original from it.
@@ -78,16 +81,50 @@ sha256sum oem-dump.bin    # record it — this is your recovery + restore image
 
 ---
 
-## 4. Turn the dump into a restore `.ufw`
+## 4. Restore over USB-ISP (wired, no OTA)
 
-One command, from the repo root — see [`tools/ufw-repack/README.md`](../tools/ufw-repack/README.md):
+When the badge is reachable over the `DP`/`DM` pads (it never left the bench, or it came back
+for a recovery), the simplest restore is to write the **full 4 MB dump back verbatim** — no
+`.ufw`, no BLE. Works from any state, including a brick: UBOOT mode is driven by the chip's
+Boot ROM, the firmware on flash is irrelevant.
+
+```sh
+# 1. Enter USB download (UBOOT) mode and confirm the device:
+lsusb | grep -i 4c4a:2942          # should show "BR35UBOOT1.00"
+
+# 2. Write the whole OEM dump back at 0x0, then reset out of UBOOT:
+cd tools/jl-uboot-tool
+python3 jluboottool.py "write 0x0 oem-dump.bin" "reset"
+
+# 3. Confirm it left UBOOT mode (the 4c4a:2942 device is gone):
+sleep 2 && lsusb | grep -qi 4c4a:2942 \
+  && echo "still in UBOOT — retry" \
+  || echo "OK, rebooted"
+```
+
+- `write` erases and rewrites the **entire** 4 MB at `0x0` — the whole flash, including
+  `key_mac`, the resource partitions and the boot config — so the unit returns to its exact
+  factory state. **Use your own dump**: the MAC and stock name will be the ones in the file,
+  so a dump from another unit would clone that unit's identity.
+- This full-flash write is the difference from the [BLE path](#5-restore-over-ble--dump2ufwpy--qix-rcsp-flash),
+  which only rewrites the CODE region and deliberately leaves `key_mac`/resources alone.
+- If `lsusb` still shows `4c4a:2942` after the reset, power-cycle the badge, re-enter UBOOT,
+  and re-run step 2.
+
+---
+
+## 5. Restore over BLE — `dump2ufw.py` → `qix rcsp-flash`
+
+No USB, no opening the case: turn the dump into a **vanilla** RCSP `.ufw` and flash it from the
+custom firmware over the native RCSP OTA. One command from the repo root — see
+[`tools/ufw-repack/README.md`](../tools/ufw-repack/README.md):
 
 ```sh
 python3 tools/ufw-repack/dump2ufw.py oem-dump.bin oem-restore.ufw
 ```
 
-The result is a **vanilla** RCSP `.ufw` (no Qix wrapper) whose loader rewrites the CODE region
-(`[0, 0x17E000)`) **in place**, leaving the resource partitions (`ui_res` / `virfat` / `data`)
-untouched. Flash it over BLE with **`qix rcsp-flash <MAC> oem-restore.ufw`** from the custom
-firmware — see the [custom → OEM](ota-howto.md#4-custom--oem-restore-the-stock-firmware)
-recipe in [ota-howto.md](ota-howto.md).
+The `dump2ufw.py` loader rewrites the CODE region (`[0, 0x17E000)`) **in place**, leaving the
+resource partitions (`ui_res` / `virfat` / `data`) untouched. Flash it with
+**`qix rcsp-flash <MAC> oem-restore.ufw`** from the badge's Update screen — the step-by-step
+[custom → OEM](ota-howto.md#4-custom--oem-restore-the-stock-firmware) recipe lives in
+[ota-howto.md](ota-howto.md).
