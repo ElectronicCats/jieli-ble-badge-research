@@ -12,3 +12,10 @@
 	# worktree, so it is dirty by design while you are building. The pinned commit
 	# is still tracked, so a real SDK bump still shows up in `git status`.
 	ignore = dirty
+[submodule "tools/jl-uboot-tool"]
+	path = tools/jl-uboot-tool
+	url = https://github.com/HeikkiRadu/jl-uboot-tool
+	# The tracked fork of kagaimiq's JieLi USB flasher/dumper, with BR35 (AC707N)
+	# support added. Used only by the wired dump step (custom→OEM restore + flash
+	# recovery) — see docs/dump-firmware.md. No JieLi code is redistributed beyond
+	# what the public tool already contains.
