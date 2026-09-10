@@ -111,6 +111,18 @@ sleep 2 && lsusb | grep -qi 4c4a:2942 \
 - If `lsusb` still shows `4c4a:2942` after the reset, power-cycle the badge, re-enter UBOOT,
   and re-run step 2.
 
+> **Reference dump in this repo:** `firmware/dump_E87.bin` is a byte-exact 4 MB dump
+> (AC707N/BR35, sha256 `5a91b18cc6f18d79bd936d9c8988f03b117ada03c54a541de3bf81d05c930f8e`) of
+> the maintainer's own E87 unit, kept as a format reference and as the `oem-dump.bin` for step 2
+> **of that unit only**.
+>
+> ⚠️ **The USB-ISP write overwrites the target badge's MAC.** Step 2 rewrites the whole 4 MB,
+> including `key_mac`, so **whatever badge you load this dump onto takes on the dumped unit's
+> Bluetooth MAC (and stock name).** Loading `dump_E87.bin` onto any other badge makes that badge
+> impersonate this E87 — two units with the same MAC will collide over BLE. Only write a dump
+> back to the unit it came from; for your own badge, use your own dump from
+> [section 3, Dump the flash](#3-dump-the-flash).
+
 ---
 
 ## 5. Restore over BLE — `dump2ufw.py` → `qix rcsp-flash`
