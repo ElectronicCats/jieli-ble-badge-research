@@ -38,7 +38,9 @@ The OEM badge exposes exactly one foothold: an **app-only** BLE OTA (the path th
 uses). This turns that into full control, entirely over BLE:
 
 ```
-OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-custom )
+OEM ──► custom firmware                ( qix flash --oem  ·  Qix FD00, opcode 0xC0  ·  fw-custom )
+custom firmware ──► custom firmware    ( qix flash --oem  ·  Qix FD00, opcode 0xC0  ·  fw-custom )
+custom firmware ──► OEM                ( jluboottool read ·  dump2ufw.py            ·  qix rcsp-flash )
 ```
 
 - The custom firmware is packaged **fw-custom** — your `app.bin` spliced into an OEM `.ufw`, which
@@ -46,13 +48,18 @@ OEM ──► custom firmware      ( qix flash --oem  ·  Qix FD00 0xC0  ·  fw-
   uboot, which rewrites the CODE partition and boots the custom. No cable, no loader.
   A raw SDK `make` image carries the *native* uboot instead, which cannot do that rewrite — flash
   one and the badge bricks silently at apply.
+- The **custom → OEM** restore (back to the stock firmware) goes the other way: a **byte-exact
+  dump of *your* unit** is repacked with `tools/ufw-repack/dump2ufw.py` into a vanilla RCSP `.ufw`
+  and flashed with `qix rcsp-flash`. Take the dump *before* the first custom flash
+  ([docs/dump-firmware.md](docs/dump-firmware.md)).
 - The badge's **MAC is constant** (it lives in the preserved `key_mac`); only the advertised
   **name** changes — the custom firmware advertises as **`EC-BADGE`**. All tooling addresses the
   badge **by MAC**, never by name.
 
-**Validation status:** both legs — `OEM → custom` and `custom → custom` — have been run
-end-to-end on real hardware. The prebuilt image in [`firmware/`](firmware) is the one that was
-flashed.
+**Validation status:** `OEM → custom` and `custom → custom` have been run end-to-end on real
+hardware. The prebuilt image in [`firmware/`](firmware) is the one that was flashed. The
+`custom → OEM` leg reuses the same plumbing in reverse and needs only a dump of *your* stock
+image; the toolchain is described in [docs/ota-howto.md](docs/ota-howto.md#4-custom--oem-restore-the-stock-firmware).
 
 ## Requirements
 
@@ -85,8 +92,10 @@ fail *silently*:
   the badge **silently reject** `REQ_UPDATE`. Power-cycle to clear it.
 - **Never flash a raw SDK `make` image** as the OTA payload — native uboot, silent brick.
 - **The ~1 MB transfer takes several minutes. Do not interrupt it.**
-- **Take a dump of your own unit first.** Recovery means writing a byte-exact dump of *your* badge
-  back over USB-ISP; no OEM firmware is distributed here. The DIY dongle for that
+- **Take a dump of your own unit first.** Recovery means writing a byte-exact dump of *your*
+  badge back over USB-ISP, and the **custom → OEM** restore needs your stock image too — no OEM
+  firmware is distributed here. How ([docs/dump-firmware.md](docs/dump-firmware.md), wired /
+  UBOOT, the only non-BLE step). The DIY dongle for that
   ([`tools/pi-pico-jl-dongle`](tools/pi-pico-jl-dongle)) is still a prototype.
 
 ## Quick start
@@ -102,6 +111,17 @@ fail *silently*:
   adapter reset plus a deterministic DBus connect. Full reference:
   **[docs/ota-howto.md](docs/ota-howto.md)**. (The legacy `qix provision` / `deploy-fw` STAGER
   chain is no longer used — see the doc.)
+
+- **Go back to OEM** (custom→OEM) — dump → repack → `rcsp-flash`, all documented in
+  **[docs/ota-howto.md](docs/ota-howto.md#4-custom--oem-restore-the-stock-firmware)**
+  and **[docs/dump-firmware.md](docs/dump-firmware.md)**:
+  ```sh
+  python3 jluboottool.py "read 0x0 0x400000 oem-dump.bin"          # wired, tools/jl-uboot-tool/
+  python3 tools/ufw-repack/dump2ufw.py oem-dump.bin oem.ufw
+  qix rcsp-flash <MAC> oem.ufw
+  ```
+  You must dump **before** the first custom flash — a restored image is built from *your* stock
+  dump, not redistributed here.
 
 - **Build the firmware from source** — two commands:
   ```sh
@@ -155,7 +175,8 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 | Doc | What |
 |---|---|
 | [build-badge-firmware.md](docs/build-badge-firmware.md) | **Build the custom firmware from source** — prerequisites, provenance of every downloaded piece, troubleshooting |
-| [ota-howto.md](docs/ota-howto.md) | **Flash it over BLE** — preflight, `OEM → custom`, `custom → custom`, protocol details |
+| [ota-howto.md](docs/ota-howto.md) | **Flash it over BLE** — preflight, `OEM → custom`, `custom → custom`, `custom → OEM`, protocol details |
+| [dump-firmware.md](docs/dump-firmware.md) | **Dump your stock firmware** (wired / UBOOT) — the input for the `custom → OEM` restore and USB-ISP recovery |
 | [lock-image.md](docs/lock-image.md) | Update the lock-screen wallpaper over BLE, no reflash |
 | [jieli-sdk-build.md](docs/jieli-sdk-build.md) | The older wine + docker flow for the **vanilla** SDK |
 | [build-m1-firmware.md](docs/build-m1-firmware.md) | The **M1** variant build (a different JieLi target tracked in this repo) |
@@ -180,6 +201,7 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 |---|---|---|
 | [**qix-ble**](tools/qix-ble) | Main BLE client: Qix (FD00) + RCSP, auth handshake, OTA flash, raw-flash, btsnoop parse. Cross-platform (`bleak`). `provision` / `deploy-fw` are **legacy**. | active (core) |
 | [**ufw-repack**](tools/ufw-repack) | Pure-Python UFW pack/parse + the 27-byte Qix OTA wrapper. No wine needed. | active |
+| [**jl-uboot-tool**](tools/jl-uboot-tool) | JieLi USB flasher/dumper (`jluboottool.py read …`) — git submodule, fork with **BR35/AC707N** support. **Wired only**; used for the stock dump behind `custom → OEM`. | submodule |
 | [**baji-ble**](tools/baji-ble) | BLE client for the JieLi **Baji** command path on the DG01 / SuperBand wristband — a *sibling* JieLi device, kept here for protocol comparison. | active |
 | [**btsnoop-parser**](tools/btsnoop-parser) | Android HCI snoop → ATT writes/notifications, for protocol RE. | active |
 | [**jl-flash-decrypt**](tools/jl-flash-decrypt) | Decrypt / re-encrypt the SFC-scrambled CODE region of a BR35 flash dump. | active |
@@ -206,6 +228,7 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 | **STAGER** | The **legacy** loader chain (`OEM → loader → custom`, raw-flash `0xD0–0xD3` + apply `0xD4`). Superseded by the direct `flash --oem`. |
 | **`ui_res` / `virfat`** | Separate resource partitions the app-only OTA cannot reach. The custom embeds its resources in the code image instead, so it doesn't need them. |
 | **USB-ISP** | The vendor's USB recovery path — the only way back from a brick. |
+| **UBOOT (mode)** | The chip's USB download bootloader mode — how a stock dump is taken over the `DP`/`DM` pads (`jl-uboot-tool`). The wired half of the `custom → OEM` round trip. |
 | **LVGL** | The embedded GUI library the custom firmware's touch menu is built on. |
 | **pi32v2** | JieLi's LLVM/clang fork and target triple; the cross-toolchain the SDK builds with. |
 
@@ -222,7 +245,7 @@ The firmware code added by the patch lives, in order of size:
 
 (Of the patch's ~15.5 k added lines, ~10.7 k are two embedded image headers; the real code delta
 is ~4.8 k.) Edit inside the SDK worktree, rebuild, then regenerate the patch — recipe in
-[docs/build-badge-firmware.md §6](docs/build-badge-firmware.md#6-modifying-the-firmware).
+[docs/build-badge-firmware.md](docs/build-badge-firmware.md#6-modifying-the-firmware).
 
 Tests — **there is no CI yet, so run them before opening a PR**:
 
@@ -252,6 +275,10 @@ crypto helpers (`jltech`: cipher / CRC / chipkey codecs, reverse-engineered from
 One script still needs the external `jl-misctools` mirror (gitignored under
 `tools/community-re/`, obtained separately): **`scripts/gen_chipkey_keyfile.py`**, which uses
 `jltech.chipkeyfile` — a module that is not vendored here. It tells you so when you run it.
+
+The **wired dump** step (custom→OEM) uses `tools/jl-uboot-tool`, a git submodule tracked in this
+repo — clone with `--recurse-submodules` (or `git submodule update --init`) and install its
+`requirements.txt`. No OEM firmware is fetched by any of this.
 
 ## Talk
 
