@@ -50,6 +50,22 @@ python3 tools/ufw-repack/make_app_only_ufw.py <in.ufw> <out.ufw> [entry_name ...
 ```
 (defaults to dropping `flash2.bin`).
 
+**`dump2ufw.py`** — **`dump.bin` → loader-download `.ufw`** (the custom→OEM OTA
+leg for `qix rcsp-flash`). Wraps the CODE region of a full 4 MB dump
+(`dump[0:0xFC000]`, verbatim) into a VANILLA RCSP UFW whose loader rewrites CODE
+`[0,0x17E000)` **in place** — it never stages over the resource partitions
+(SDFILE `0x17E000` / VIRFAT `0x33E000`), unlike the `0xC0`/`0xD4` staging paths
+which cannibalize that span and corrupt resources. The loader bundle (`ota.bin`,
+incl. `lcflash_ota.bin`) can't be derived from a raw dump, so it ships here as
+`loaderdl-base.ufw` (its flash.bin zeroed → code-free, ~172 KB packed in git).
+So the user needs **only a dump** — no `.ufw` to supply:
+```
+python3 tools/ufw-repack/dump2ufw.py <dump.bin> <out.ufw>
+```
+Recomputes the flash.bin dcrc + listcrc + hdrcrc; uses the vendored `jltech/`
+(no external checkout). Maintainer-only, to refresh the loader from a newer SDK
+build: `dump2ufw.py --make-base <native_update.ufw>` (regenerates the base).
+
 ## Dependencies
 
 - `jltech` from `tools/community-re/jl-misctools/firmware` — the canonical JieLi

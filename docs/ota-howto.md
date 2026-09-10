@@ -1,4 +1,4 @@
-# OTA over BLE — OEM→custom & custom→custom
+# OTA over BLE — OEM→custom, custom→custom & custom→OEM
 
 How to flash and update firmware on the JieLi AC707N / BR35 e-badge **entirely over BLE**
 (no USB, no opening the case), using the `qix` client in [`tools/qix-ble`](../tools/qix-ble).
@@ -13,6 +13,8 @@ resident OEM uboot, which rewrites the CODE partition and boots the custom:
 
 ```
 OEM ──► custom firmware     ( qix flash --oem  ·  Qix FD00, opcode 0xC0  ·  fw-custom )
+custom ──► custom           ( qix flash --oem  ·  Qix FD00, opcode 0xC0  ·  fw-custom )
+custom ──► OEM              ( jluboottool read ·  dump2ufw.py            ·  qix rcsp-flash, RCSP AE00 )
 ```
 
 All tooling addresses the badge **by MAC** (constant, lives in the preserved `key_mac`); only the
@@ -50,7 +52,13 @@ advertised **name** changes `OEM → custom firmware`.
 - **Address by MAC**, never by name (`qix scan` to find it). The name changes across stages; the
   MAC does not.
 - **BLE-HID pairing / stale bond:** the badge is a BLE-HID device. Clear any stale host bond
-  before flashing (see §3) and let `qix flash` pair fresh (`QIX_FLASH_PAIR=1`).
+  before flashing and let `qix flash` pair fresh (`QIX_FLASH_PAIR=1`) — full recipe in
+  [custom → custom](#3-custom--custom).
+- **custom → OEM:** the restore leg needs a **vanilla** `.ufw` built from a dump of *your*
+  stock image — see [custom → OEM](#4-custom--oem-restore-the-stock-firmware) and
+  [dump-firmware.md](dump-firmware.md). Everything it needs
+  (`dump2ufw.py` + its vendored `jltech/` + the shipped `loaderdl-base.ufw`) is already in
+  this repo; the wired *dump* additionally needs the `tools/jl-uboot-tool` submodule.
 
 ### The firmware image in [`firmware/`](../firmware)
 
@@ -99,7 +107,8 @@ a `\` breaks the line continuation and the shell then tries to run the `.bin`/`.
 `swap_app.py` prints the OEM app slot size (~995 KB) and 0xFF-pads the tail; your `app.bin` must
 fit it. The output size stays `1 079 363 B`. Two builds of the same source differ only in the
 embedded `__TIME__`/`__LINE__` bytes plus the CRCs that cover them — a byte-different `.ufw` with
-the same size is expected (don't compare by `sha256`). Then flash it per §2 / §3.
+the same size is expected (don't compare by `sha256`). Then flash it per the
+[OEM → custom](#2-oem--custom) / [custom → custom](#3-custom--custom) recipes.
 
 ---
 
@@ -165,7 +174,60 @@ re-issuing `0xC0`.
 
 ---
 
-## 4. Verify the result
+## 4. custom → OEM (restore the stock firmware)
+
+Goes the other way: the badge runs EC-BADGE custom, and you flash a `.ufw` built from a
+**byte-exact dump of *your* stock OEM firmware** back onto it, returning the unit to factory
+state. Unlike `qix flash`, this leg rides the **native RCSP OTA** (`qix rcsp-flash`, service
+AE00 — served by the custom's own Update screen) with a **vanilla** `.ufw`, no Qix wrapper.
+The badge addresses you by MAC, so **use your own dump**, not one taken from another unit.
+
+**Take the dump *before* the first custom flash** — a badge that already runs the custom no
+longer contains the original to dump. The wired dump step is [dump-firmware.md](dump-firmware.md);
+the turn-around from dump to OTA image is two commands:
+
+```sh
+# 1. Dump (wired, USB / UBOOT mode — never over BLE). From tools/jl-uboot-tool:
+cd tools/jl-uboot-tool
+python3 jluboottool.py "read 0x0 0x400000 oem-dump.bin"          # whole 4 MB, byte-exact
+
+# 2. Repack (back at the repo root): dump.bin → vanilla RCSP .ufw for rcsp-flash
+cd ../..
+python3 tools/ufw-repack/dump2ufw.py oem-dump.bin oem-restore.ufw
+```
+
+`dump2ufw.py` wraps the CODE region (`dump[0:0xFC000]`, verbatim, in its on-flash scrambled
+form) into a loader-download `.ufw`, recomputing the flash.bin dcrc + listcrc + hdrcrc. Its
+loader rewrites CODE `[0, 0x17E000)` **in place** — it never stages over the resource
+partitions (SDFILE `0x17E000` / VIRFAT `0x33E000`), so whatever `ui_res`/`virfat` content was
+on the badge (e.g. a lock background) survives. The loader bundle ships prebuilt as
+`tools/ufw-repack/loaderdl-base.ufw` — you only supply the dump.
+
+Then flash — the preflight is the same as the [custom → custom](#3-custom--custom) leg
+(adapter up, `bluetoothctl remove <MAC>`, re-scan; badge on **Ajustes → Actualizar**,
+advertising `EC-BADGE`) but with `rcsp-flash`:
+
+```sh
+sudo rfkill unblock bluetooth && sudo hciconfig hci0 up
+bluetoothctl remove <MAC>
+bluetoothctl --timeout 15 scan le | grep -i <MAC>
+
+# ~1 MB transfer, takes SEVERAL MINUTES — do NOT interrupt it.
+qix rcsp-flash <MAC> oem-restore.ufw
+```
+
+On apply the loader rewrites the CODE partition with the stock image and the badge boots it —
+advertising under its stock OEM name again. The **MAC** (`key_mac`) lives outside the CODE
+span and is preserved, which is why the restore belongs to your unit. Recovery from a restored
+OEM is just the [OEM → custom](#2-oem--custom) leg again (`qix flash --oem`), so the round
+trip is complete.
+
+> Prefer a pure wired restore (badge on the bench, or partially bricked)? The same dump can be
+> written back **over USB-ISP, without OTA** — see the [restore over USB-ISP](dump-firmware.md#4-restore-over-usb-isp-wired-no-ota) section in [dump-firmware.md](dump-firmware.md).
+
+---
+
+## 5. Verify the result
 
 ```sh
 qix scan                       # advertised name changed to "EC-BADGE"
@@ -179,12 +241,12 @@ qix scan                       # advertised name changed to "EC-BADGE"
 
 ---
 
-## 5. Connection env vars & troubleshooting
+## 6. Connection env vars & troubleshooting
 
 Env vars (see [`tools/qix-ble/README.md`](../tools/qix-ble/README.md)):
 
 - `QIX_CONNECT_VIA_DBUS=1` — raw BlueZ `Device1.Connect()` (skips bleak's flaky scan; needs the
-  device cached by an LE scan first, §3 step 2).
+  device cached by an LE scan first — the [custom → custom](#3-custom--custom) scan step).
 - `QIX_FLASH_PAIR=1` — fresh Just-Works pair on `qix flash` (the badge is BLE-HID; without it the
   link can tear down on the first data write).
 - `QIX_CONNECT_ATTEMPTS` (default 4) — connection retry rounds.
@@ -195,20 +257,24 @@ Env vars (see [`tools/qix-ble/README.md`](../tools/qix-ble/README.md)):
 | Symptom | Cause | Fix |
 |---|---|---|
 | `REQ_UPDATE` silently rejected / `state=0` | TEST_MODE flag set by a prior `qix dump --auth` | Power-cycle the badge, don't dump before flashing |
-| Link drops on first data write, `LE disconnect reason=0x13` | BLE-HID, stale host LTK vs the cleartext Update screen | `bluetoothctl remove <MAC>` + re-scan (§3), let it pair fresh |
-| `connect failed … Device1 not found` | device not cached / not advertising | ensure badge on the Update screen, then re-scan (§3) |
+| Link drops on first data write, `LE disconnect reason=0x13` | BLE-HID, stale host LTK vs the cleartext Update screen | `bluetoothctl remove <MAC>` + re-scan (custom → custom), let it pair fresh |
+| `connect failed … Device1 not found` | device not cached / not advertising | ensure badge on the Update screen, then re-scan |
 | `flash OK` + `apply VERIFY OK` + `cpu_reset`, then **silent brick** | receiver carried the SDK-native uboot (bad USB-ISP image) | recover by USB-ISP'ing the fw-custom `.ufw` code-slice (OEM uboot) — **not** a battery issue |
 | `UfwInvalid` from `qix flash` | `.ufw` lacks the 27-byte Qix wrapper | `wrap_qix.py wrap` it |
+| `rcsp-flash` rejects / no OTA service | badge is not serving the native RCSP Update path | badge must be running the **custom** on **Ajustes → Actualizar** (advertising `EC-BADGE`); `rcsp-flash` needs the vanilla `.ufw` from `dump2ufw.py`, not a Qix-wrapped one |
+| `dump2ufw.py` errors `dump too small` | dump is shorter than the CODE slot (`0xFC000`) | re-dump the full 4 MB: `jluboottool.py "read 0x0 0x400000 <dump.bin>"` |
 | Custom needs its own `ui_res`/`virfat` resources | the `0xC0` path is code-only | (legacy) use the STAGER `provision`/`deploy-fw --resources` path |
 
 ---
 
-## 6. Notes
+## 7. Notes
 
 - **No shell script performs the OTA** — flashing is entirely `qix` (this doc). The `scripts/` are
   build / repack / chipkey / setup helpers (see [`scripts/README.md`](../scripts/README.md)); they
   produce the `.ufw`, they do not flash it.
 - The Qix OTA (`0xC0`) apply ends in the **resident OEM uboot** rewriting the CODE partition
   (`[0, 0x17E000)` is write-protected otherwise). The MAC (`key_mac`) is preserved across it.
+  The custom → OEM leg uses the *native* RCSP loader instead, which rewrites the same
+  CODE span in place and likewise leaves `key_mac` and the resource partitions alone.
 - Building the firmware is out of scope here — see
   [build-m1-firmware.md](build-m1-firmware.md) and [jieli-sdk-build.md](jieli-sdk-build.md).

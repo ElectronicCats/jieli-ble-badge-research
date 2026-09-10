@@ -82,7 +82,8 @@ downloads it and checks its sha256 against the version this repo was validated w
 URL, so a **sha mismatch is a warning, not an error** — it usually just means a newer release.
 
 They are only needed for the **USB** images (`update.ufw`, `jl_isd.fw`). The **BLE OTA** path
-needs nothing but `app.bin`, which the compiler produces regardless — see §4.
+needs nothing but `app.bin`, which the compiler produces regardless — see
+[Build](#3-build).
 
 ### On the chipkey
 
@@ -199,7 +200,8 @@ the tools: `scripts/setup-badge-build.sh`.
 ### `download.sh: using chipkey none`
 
 No `chipkey_*.bin` in `SDK/cpu/br35/tools/download/watch/`. The build completes but the
-packaged image is **keyless** and a chipkey-burned unit rejects it. See §2.
+packaged image is **keyless** and a chipkey-burned unit rejects it. See
+[On the chipkey](#on-the-chipkey).
 
 ### `Device Offline` at the end of the build
 
