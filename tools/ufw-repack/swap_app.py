@@ -31,12 +31,29 @@ def main():
     slot = next((je for je in layout.jlfs_app_dir if je.name == "app.bin"), None)
     if slot is None:
         raise SystemExit("no app.bin in app area")
-    print(f"  app.bin slot: data_off={slot.data_offset:#x} size={slot.data_size}")
-    print(f"  new app.bin : {len(new_app)} bytes")
+    print(f"  OTA app slot : {slot.data_size} bytes  (OEM code slot @ {slot.data_offset:#x})")
+    print(f"  your app.bin : {len(new_app)} bytes")
     if len(new_app) > slot.data_size:
-        raise SystemExit(f"new app {len(new_app)} > slot {slot.data_size}")
+        over = len(new_app) - slot.data_size
+        raise SystemExit(
+            "\n".join([
+                "",
+                "  ERROR: app.bin is TOO BIG for the BLE OTA image — nothing was written.",
+                f"    your app.bin : {len(new_app):>9} bytes",
+                f"    OTA app slot : {slot.data_size:>9} bytes",
+                f"    over by      : {over:>9} bytes  ({100 * over / slot.data_size:.1f}% too big)",
+                "",
+                "  The OEM BLE OTA replaces ONLY the code slot and cannot grow it. To fit, either:",
+                "    - move big assets (images, fonts) out of app.bin into raw-flashed content, or",
+                "    - trim the firmware (disable unused features / LVGL demos) to shrink app.bin.",
+                "",
+            ])
+        )
 
-    padded = new_app + b"\xff" * (slot.data_size - len(new_app))
+    headroom = slot.data_size - len(new_app)
+    print(f"  fits OTA slot: {headroom} bytes headroom "
+          f"({100 * len(new_app) / slot.data_size:.1f}% of slot used)")
+    padded = new_app + b"\xff" * headroom
     out = repack(layout, [("app.bin", 0, padded)])
     Path(out_path).write_bytes(out)
     print(f"  wrote {out_path} ({len(out)} B)")
