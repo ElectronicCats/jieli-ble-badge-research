@@ -5272,7 +5272,7 @@ index 826a990..d9241ff 100644
  /*1: Enable Pinyin input method*/
  /*Requires: lv_keyboard*/
 diff --git a/SDK/apps/common/ui/lvgl_v8/lvgl_main.c b/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
-index 8cbf236..fc8ce69 100644
+index 8cbf236..26dffc9 100644
 --- a/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
 +++ b/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
 @@ -7,6 +7,8 @@
@@ -5307,7 +5307,7 @@ index 8cbf236..fc8ce69 100644
  
      int msg_p[2 + sizeof(struct key_event) / 4];
  
-@@ -977,8 +986,1201 @@ u8 lvgl_ui_is_suspended(void)
+@@ -977,8 +986,1248 @@ u8 lvgl_ui_is_suspended(void)
      return lvgl_suspend_flag;
  }
  
@@ -5409,6 +5409,23 @@ index 8cbf236..fc8ce69 100644
 +volatile u8 g_scanner_retry_req = 0;         /* set by Button 2; handled + debounced in the main loop */
 +static u32 g_scanner_last_retry_ms = 0;
 +static volatile u8 g_scanner_list_needs_update = 0;
++
++/* Deferred scan handling: the HCI hook (BT task, closed stack budget) only saves the
++ * latest raw LE advertising report into this single slot; the LVGL task drains it on
++ * its ~10 ms loop and does the name parse + dedup/store there. That keeps all the heavy
++ * work (name scan, sprintf, 12-slot RSSI eviction) OUT of the BT task, whose frame the
++ * pipelined parse+printf blew under a full adv flood (dup filter OFF + 15+ devices
++ * around -> freeze/reboot via BT-task stack overflow). Single-slot latest-wins:
++ * reports faster than the drain rate are dropped, which is exactly what a flood needs. */
++typedef struct {
++    u8 address[6];
++    u8 addr_type;
++    s8 rssi;
++    u8 length;
++    u8 data[31];
++    u8 valid;
++} scanner_pend_t;
++static scanner_pend_t g_scanner_pend;
 +
 +/* The badge boots with BLE off; it's turned on only inside Update and Mouse. Uses the
 + * module-level enable (not just the adv enable): RCSP auto-advertises at BT start, and
@@ -5877,6 +5894,7 @@ index 8cbf236..fc8ce69 100644
 +        }
 +        if (strcmp(g_scanner_devs[index].name, "Unknown") == 0 && strcmp(name, "Unknown") != 0) {
 +            strncpy(g_scanner_devs[index].name, name, sizeof(g_scanner_devs[index].name) - 1);
++            g_scanner_devs[index].name[sizeof(g_scanner_devs[index].name) - 1] = '\0';
 +            g_scanner_list_needs_update = 1;
 +        }
 +    } else {
@@ -5898,6 +5916,7 @@ index 8cbf236..fc8ce69 100644
 +            memset(&g_scanner_devs[slot], 0, sizeof(g_scanner_devs[slot]));
 +            memcpy(g_scanner_devs[slot].address, addr, 6);
 +            strncpy(g_scanner_devs[slot].name, name, sizeof(g_scanner_devs[slot].name) - 1);
++            g_scanner_devs[slot].name[sizeof(g_scanner_devs[slot].name) - 1] = '\0';
 +            g_scanner_devs[slot].rssi = rssi;
 +            g_scanner_devs[slot].is_new = 1;
 +            g_scanner_devs[slot].type = type;
@@ -5913,47 +5932,74 @@ index 8cbf236..fc8ce69 100644
 +    OS_EXIT_CRITICAL();
 +}
 +
-+static void process_scan_report(const u8 *packet, u16 size)
++/* Drain the one-slot adv-report FIFO and feed it into the device store. Runs on the
++ * LVGL task (~10 ms cadence), NOT on the BT task: get_ble_name_from_adv +
++ * badge_scanner_add_device must never run in the closed BT-stack task frame under an
++ * adv flood (the drain also calls badge_scanner_add_device's strlen/strcmp paths). */
++static void scanner_drain_pend(void)
 +{
-+    (void)size;
 +    if (!g_scanner_active) {
 +        return;
 +    }
-+    adv_report_t *report = (adv_report_t *)&packet[2];
++    OS_SR_ALLOC();
++    OS_ENTER_CRITICAL();
++    if (!g_scanner_pend.valid) {
++        OS_EXIT_CRITICAL();
++        return;
++    }
++    scanner_pend_t pend = g_scanner_pend;
++    g_scanner_pend.valid = 0;
++    OS_EXIT_CRITICAL();
++
 +    char name[32];
-+    get_ble_name_from_adv(report->data, report->length, name, sizeof(name));
++    get_ble_name_from_adv(pend.data, pend.length, name, sizeof(name));
 +    if (name[0] == '\0') {
 +        strcpy(name, "Unknown");
 +    }
-+    badge_scanner_add_device(report->address, name, report->rssi, SCANNER_TYPE_BLE,
-+                             report->data, report->length, report->address_type);
++    badge_scanner_add_device(pend.address, name, pend.rssi, SCANNER_TYPE_BLE,
++                             pend.data, pend.length, pend.addr_type);
 +    /* Reference-style connect: fires create_connection synced to the target's fresh adv. */
 +    extern void badge_gatt_on_adv(const u8 *addr, u8 addr_type);
-+    badge_gatt_on_adv(report->address, report->address_type);
++    badge_gatt_on_adv(pend.address, pend.addr_type);
 +}
 +
 +/* adv-report sink, called from ble_rcsp_server.c::cbk_packet_handler (this firmware's active
 + * HCI handler) for every event. We only consume GAP advertising reports (0xE2)
 + * while the Scanner screen is open. Hooking the existing handler avoids changing the
 + * global — the multi-role handler the old swap relied on is compiled out (#if 0)
-+ * in this RCSP server build. */
++ * in this RCSP server build.
++ *
++ * MINIMAL WORK ONLY: copy the report into g_scanner_pend under the lock and return.
++ * No name parse, no printf, no storage here — this runs on the closed BT-stack task,
++ * whose frame overflowed (freeze/reboot) when a saturated venue (15+ devices, dup filter
++ * OFF = every packet) pipelined parse + formatting on every event. The LVGL loop drains
++ * the slot at its own pace (scanner_drain_pend). */
 +void badge_scanner_on_hci(uint8_t packet_type, uint8_t *packet, uint16_t size)
 +{
 +    if (!g_scanner_active) {
 +        return;
 +    }
-+    /* DIAG (remove later): traces whether this hook fires and whether adv reports (0xE2) arrive while scanning. */
-+    static u16 hci_n = 0, adv_n = 0;
-+    hci_n++;
-+    if (packet_type == HCI_EVENT_PACKET && packet[0] == 0xE2) { // GAP_EVENT_ADVERTISING_REPORT
-+        adv_n++;
-+        if (adv_n <= 3 || (adv_n % 25) == 0) {
-+            printf("scanner: adv report #%u (hci seen=%u)\n", adv_n, hci_n);
-+        }
-+        process_scan_report(packet, size);
-+    } else if (hci_n <= 10) {
-+        printf("scanner: hci type=%u code=0x%02x\n", packet_type, packet[0]);
++    if (packet_type != HCI_EVENT_PACKET || packet[0] != 0xE2 || size < 12) {
++        return;
 +    }
++    adv_report_t *report = (adv_report_t *)&packet[2];
++    /* Bound the payload to what the event actually carries (defends against a mismatched
++     * report layout parsing a garbage length) AND to the store slot. */
++    u16 avail = (u16)((const u8 *)report->data - packet);
++    avail = (size > avail) ? (size - avail) : 0;
++    u8 n = report->length;
++    if (n > sizeof(g_scanner_pend.data)) { n = sizeof(g_scanner_pend.data); }
++    if (n > avail) { n = (u8)avail; }
++
++    OS_SR_ALLOC();
++    OS_ENTER_CRITICAL();
++    memcpy(g_scanner_pend.address, report->address, 6);
++    g_scanner_pend.addr_type = report->address_type;
++    g_scanner_pend.rssi = report->rssi;
++    g_scanner_pend.length = n;
++    memcpy(g_scanner_pend.data, report->data, n);
++    g_scanner_pend.valid = 1;
++    OS_EXIT_CRITICAL();
 +}
 +
 +/* The Scanner is BLE-only: the LE scan runs continuously. (Classic BR/EDR inquiry is not used here
@@ -5985,7 +6031,8 @@ index 8cbf236..fc8ce69 100644
 +    g_scanner_active = 1;
 +
 +    /* Continuous active LE scan, duplicate filtering OFF. The adv reports (0xE2) arrive via
-+     * badge_scanner_on_hci -> process_scan_report -> badge_scanner_add_device. */
++     * badge_scanner_on_hci (BT task, copy into the pend slot only) and are drained on the
++     * LVGL loop by scanner_drain_pend -> badge_scanner_add_device. */
 +    int sp = ble_op_set_scan_param(1, 160, 160);   /* active scan, interval/window 100 ms */
 +    int se = ble_op_scan_enable2(1, 0);
 +    printf("scanner: scan_param=%d scan_enable=%d (0=ok, !=0 rejected)\n", sp, se);
@@ -6509,7 +6556,7 @@ index 8cbf236..fc8ce69 100644
  #if LV_USE_MONKEY != 0
      /*Create pointer monkey test*/
      lv_monkey_config_t monkey_pointer_config;
-@@ -1025,7 +2227,9 @@ static void lvgl_main_task(void *priv)
+@@ -1025,7 +2274,9 @@ static void lvgl_main_task(void *priv)
      lv_port_fs_init();
      lv_port_disp_init(priv);
      lv_port_indev_init();
@@ -6520,7 +6567,7 @@ index 8cbf236..fc8ce69 100644
      lv_ui_src_pack_mode_init();
  
  #if LV_USE_GPU_COMPRESS
-@@ -1054,6 +2258,158 @@ static void lvgl_main_task(void *priv)
+@@ -1054,6 +2305,164 @@ static void lvgl_main_task(void *priv)
  
      ui_sysinfo_init();
  
@@ -6637,6 +6684,12 @@ index 8cbf236..fc8ce69 100644
 +                if (badge_gatt_take_dirty()) {
 +                    scanner_detail_render();
 +                }
++            }
++
++            /* Drain the BT->LVGL adv-report FIFO every pass (~10 ms) while scanning. RSSI
++             * refresh and new-device discovery happen here, on our own task frame. */
++            if (g_scanner_active) {
++                scanner_drain_pend();
 +            }
 +
 +            if (g_scanner_active && g_scanner_list_needs_update) {
