@@ -169,8 +169,6 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 - **Open research firmware** — part of a JieLi e-badge reverse-engineering project, with the tools
   and docs published here to explore how it works and build on it.
 
-> The on-device UI is in **Spanish** (e.g. the update screen is **Ajustes → Actualizar**).
-
 ## Documentation
 
 | Doc | What |
