@@ -1,14 +1,17 @@
 diff --git a/.gitignore b/.gitignore
-index 38ca176..72db865 100644
+index 38ca176..a393299 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -36,3 +36,25 @@ SDK.git/
+@@ -36,3 +36,28 @@ SDK.git/
  info.json
  *sdk.md5
  ./cache
 +
 +# Chipkey (device secret) — must NOT be committed; provide it locally to flash
 +chipkey_*.bin
++
++# Which board the objects in the tree were built for (scripts/build-badge-fw.sh)
++.badge-board
 +
 +# Post-build generated scripts and artifacts
 +download.sh
@@ -261,7 +264,7 @@ index f737124..454f10e 100644
 +**AC707N/BR35 watch SDK**, which remains JieLi's property and ©; the custom badge work lives under
 +`SDK/apps/` and `SDK/cpu/br35/`.
 diff --git a/SDK/Makefile b/SDK/Makefile
-index 611f17b..67ccecc 100644
+index 611f17b..f318369 100644
 --- a/SDK/Makefile
 +++ b/SDK/Makefile
 @@ -53,6 +53,9 @@ export PATH:=$(TOOL_DIR):$(PATH)
@@ -274,7 +277,7 @@ index 611f17b..67ccecc 100644
  endif
  
  export CC  := $(TOOL_DIR)/$(CC)
-@@ -167,6 +170,18 @@ export DEFINES := \
+@@ -167,6 +170,38 @@ export DEFINES := \
  
  export DEFINES += $(EXT_CFLAGS) # 额外的一些定义
  
@@ -290,10 +293,30 @@ index 611f17b..67ccecc 100644
 +export DEFINES += -DCONFIG_BADGE_MENU
 +endif
 +
++# `make BOARD=e87|dg01` = pick which AC707N board the image is built for. Both are
++# 360x360 round BR35 units, but the panel, the touch controller and the ADKEY
++# wiring differ, so one image does NOT run on the other:
++#
++#   e87  (default)  E87 / DragonJAR badge  — ST77916 panel, AXS5106L touch on
++#                   PB1/PB2, two ADKEY buttons.
++#   dg01            DG01 wristband         — "badge2_360" panel (lc9855-class,
++#                   DE/DF paging), CST816D touch on PA5/PA6, one button on PB7.
++#
++# The board-specific code is all gated on TCFG_LCD_SPI_BADGE2_ENABLE (see
++# board_ac707n_demo_cfg.h), which this flag drives through CONFIG_BADGE_BOARD_DG01.
++BOARD ?= e87
++ifeq ($(BOARD),e87)
++export DEFINES += -DCONFIG_BADGE_BOARD_E87
++else ifeq ($(BOARD),dg01)
++export DEFINES += -DCONFIG_BADGE_BOARD_DG01
++else
++$(error unknown BOARD '$(BOARD)' -- use BOARD=e87 or BOARD=dg01)
++endif
++
  # 头文件搜索路径
  export INCLUDES := \
  	@build/include_dir.txt \
-@@ -193,8 +208,12 @@ export LINK_AT ?= 1
+@@ -193,8 +228,12 @@ export LINK_AT ?= 1
  # see: https://www.gnu.org/software/make/manual/html_node/Suffix-Rules.html
  .SUFFIXES:
  
@@ -322,7 +345,7 @@ index 045b2e8..a118d48 100644
  }
  
 diff --git a/SDK/apps/common/device/key/adkey.c b/SDK/apps/common/device/key/adkey.c
-index 240fc6a..27b7da8 100644
+index 240fc6a..6e856fe 100644
 --- a/SDK/apps/common/device/key/adkey.c
 +++ b/SDK/apps/common/device/key/adkey.c
 @@ -17,6 +17,14 @@
@@ -340,34 +363,60 @@ index 240fc6a..27b7da8 100644
  static const struct adkey_platform_data *__this = NULL;
  
  //按键驱动扫描参数列表
-@@ -39,13 +47,132 @@ u8 ad_get_key_value(void)
+@@ -30,6 +38,43 @@ struct key_driver_para adkey_scan_param = {
+     .scan_time 	  	  = 10,				//按键扫描频率, 单位: ms
+ };
+ 
++#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
++/* badge2: ONE button on PB7, wired straight to the pin -- no resistor divider, so there is
++ * no level to discriminate. The button is simply down or up.
++ *
++ * PB7 is a P33 WKUP port and its clean digital level (P3_WKUP_LEVEL0 bit 1) follows the line
++ * directly: 0 = pressed. That is the whole reading.
++ *
++ * Everything the badge1 path below does -- a BLOCKING PMU-domain ADC conversion on every
++ * scan, minimum-level tracking, candidate levels, a dual fast/slow debounce, a WKUP confirm
++ * gate -- exists to tell two buttons apart on a divider and to survive that divider's flaky
++ * hand-wired contact. None of it applies to this board, and all of it cost: ~2 scans to
++ * commit a press plus 5 to release, on top of the key driver's own filter, meant a tap took
++ * roughly 200 ms to appear. Worse, the blocking conversion ran in HARDWARE-TIMER context
++ * (key_driver uses sys_s_hi_timer_add), so every scan stalled the system -- the "everything
++ * is slow" symptom.
++ *
++ * Debouncing is left to the key driver's own filter_time (2 scans = 20 ms), which is what
++ * that parameter is for. */
++u8 ad_get_key_value(void)
++{
++    u8 kv;
++
++    if (!__this->enable) {
++        return NO_KEY;
++    }
++    kv = ((P33_CON_GET(P3_WKUP_LEVEL0) & (1u << 1)) == 0) ? __this->key_value[0] : NO_KEY;
++
++#ifdef CONFIG_BADGE_MENU
++    {
++        extern volatile u8 g_badge_adkey_kv;
++        g_badge_adkey_kv = kv;
++    }
++#endif
++    return NO_KEY;      /* the UI polls g_badge_adkey_kv; the driver takes no action */
++}
++#else
++
+ u8 ad_get_key_value(void)
+ {
+     u8 i;
+@@ -39,15 +84,110 @@ u8 ad_get_key_value(void)
          return NO_KEY;
      }
  
 -    /* ad_data = adc_get_voltage(__this->ad_channel); */
-+#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
-+    /* badge2: PB7 is read through the PMU PADC0 path (AD_CH_IO_PB7 == AD_CH_PMU_PADC0),
-+     * which the round-robin sampler updates too slowly to catch presses (adc_get_value
-+     * returned a stale ~4040). Force a FRESH blocking sample on each 10ms scan so a press
-+     * (PB7 pulled low -> ~40) is caught reliably. */
-+    ad_data = adc_get_value_blocking(__this->ad_channel);
-+#else
      ad_data = adc_get_value(__this->ad_channel);
 -    for (i = 0; i < CONFIG_ADKEY_MAX_NUM; i++) {
 -        if ((ad_data <= __this->ad_value[i]) && (__this->ad_value[i] < 0xfffL)) {
 -            return __this->key_value[i];
-+#endif
 +
-+    /* diag: PB7 is a P33 WAKEUP port; its level (P3_WKUP_LEVEL0 bit1) and the latched edge (P3_WKUP_N_PND0 bit1) are the P33 domain that gpio_read/ADC never saw. Prints on any change. */
-+    {
-+        static u32 llvl = 0xffffffff, lpnd = 0xffffffff;
-+        u32 lvl = P33_CON_GET(P3_WKUP_LEVEL0);
-+        u32 pnd = P33_CON_GET(P3_WKUP_N_PND0);
-+        if (lvl != llvl || pnd != lpnd) {
-+            llvl = lvl; lpnd = pnd;
-+            printf("[WKUP] level=%x npnd=%x (PB7=bit1)\n", lvl, pnd);
-+        }
-+    }
 +
 +    /* badge: the hand-wired buttons have flaky contact. While a button is held,
 +     * imperfect contact raises the divider resistance, so the AD sweeps UP from
@@ -429,8 +478,8 @@ index 240fc6a..27b7da8 100644
 +            press_min   = 0xffff;
 +            cand_min    = 0xffff;
 +            press_cnt   = 0;
-+        }
-+    }
+         }
+     }
 +
 +    if (press_min != 0xffff) {
 +        for (i = 0; i < CONFIG_ADKEY_MAX_NUM; i++) {
@@ -448,13 +497,6 @@ index 240fc6a..27b7da8 100644
 +    {
 +        extern volatile u8 g_badge_adkey_kv;
 +        g_badge_adkey_kv = kv;
-+        /* diag: log the raw AD when it moves >150 (remove once the mapping is confirmed). */
-+        static u16 last_ad = 0;
-+        int d = (int)ad_data - (int)last_ad;
-+        if (d > 150 || d < -150) {
-+            last_ad = ad_data;
-+            printf("[ADKEY] raw=%d kv=%d pmin=%d\n", ad_data, kv, press_min);
-+        }
 +    }
 +#else
 +    /* Other builds: report only (edge-triggered log, no app action). */
@@ -471,12 +513,15 @@ index 240fc6a..27b7da8 100644
 +            } else {
 +                printf("[ADKEY] released\n");
 +            }
-         }
-     }
++        }
++    }
 +#endif
      return NO_KEY;
  }
++#endif  /* TCFG_LCD_SPI_BADGE2_ENABLE */
  
+ __attribute__((weak))
+ const struct adkey_platform_data *get_adkey_platform_data()
 diff --git a/SDK/apps/common/device/touch_panel/tp_api.h b/SDK/apps/common/device/touch_panel/tp_api.h
 index 9872836..b588767 100644
 --- a/SDK/apps/common/device/touch_panel/tp_api.h
@@ -1236,10 +1281,10 @@ index 9b9bcd2..cc1a0db 100644
  
 diff --git a/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c
 new file mode 100644
-index 0000000..d0e632e
+index 0000000..7f0e662
 --- /dev/null
 +++ b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c
-@@ -0,0 +1,577 @@
+@@ -0,0 +1,590 @@
 +/*
 + * Qix OTA server over BLE (GATT service C2E6FD00) for the e_badge watch firmware.
 + *
@@ -1302,8 +1347,21 @@ index 0000000..d0e632e
 + * single-bank geometry, so the resident uboot writes the code partition on next boot. */
 +#if (QIX_OTA_APPLY && defined(CONFIG_BADGE_MENU) && TCFG_COMPELTE_UFW_LC_EN && !CONFIG_DOUBLE_BANK_ENABLE)
 +#define QIX_OTA_STAGE_SINGLE_BANK  1
++#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
++/* badge 2 (DG01): the only unclaimed span is 0x358000..0x3DD000 -- between the end of
++ * our FDB and the OTA loader's staging area. See qix_raw_flash.c for the full map and
++ * why badge 1's [0x17E000,0x3BE000) is NOT free here (it covers the OEM's resfs volume).
++ *
++ * That is 544 KB, and a staged image is ~1 MB, so the check below will reject every
++ * real transfer on this board. That is deliberate and correct: there is nowhere safe to
++ * stage a full image on a DG01 that still holds the stock resources. Use the RCSP path
++ * (qix rcsp-flash), which writes CODE in place and needs no scratch area. */
++#define QIX_STAGE_BASE    0x358000u
++#define QIX_STAGE_END     0x3DD000u
++#else
 +#define QIX_STAGE_BASE    0x17E000u   /* free raw region [0x17E000,0x3BE000): SDFILE+VIRFAT as scratch */
 +#define QIX_STAGE_END     0x3BE000u
++#endif
 +#define QIX_ERASE_SECTOR_CMD  200     /* IOCTL_ERASE_SECTOR (matches qix_raw_flash.c) */
 +extern int  tzflash_write(const void *buf, u32 len, u32 offset);
 +extern int  tzflash_ioctl(u32 cmd, u32 arg);
@@ -1838,10 +1896,10 @@ index 0000000..80dff66
 +#endif /* QIX_OTA_SERVER_H */
 diff --git a/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c
 new file mode 100644
-index 0000000..8c52efb
+index 0000000..750f1ca
 --- /dev/null
 +++ b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,369 @@
 +/*
 + * Qix raw-flash service — part of the badge menu firmware (-DCONFIG_BADGE_MENU).
 + * Adds direct erase/write/read access to ANY flash partition on top of the existing
@@ -1893,15 +1951,33 @@ index 0000000..8c52efb
 +#define QIX_CMD_RAW_APPLY         0xD4   /* [addr LE32][len LE32]: apply a staged code .ufw */
 +#define QIX_CMD_RAW_RET_APPLY     0xDC   /* [st]: 0 ok (device verifies + resets to uboot) */
 +
-+/* 4 MB map: CODE 0..0x17E000 | SDFILE/ui_res 0x17E000 | VIRFAT 0x33E000 | DATA 0x3BE000 */
-+#define RAW_CODE_PROTECT_END      0x17E000
 +#define RAW_FLASH_END             0x400000
-+/* Per-device config at the top: DATA 0x3BE000 | VM | BTIF (holds CFG_BT_MAC_ADDR) |
-+ * EXIF, up to 0x400000. All OPT=1 (preserved by the .ufw apply). Raw erase/write must
-+ * never reach it: erasing BTIF makes the badge boot with no MAC and generate a NEW random
-+ * one (user_cfg.c:327), silently changing the device address. Staging tops out at
-+ * 0x3BE000 anyway, so this only rejects out-of-range commands. Reads are unrestricted. */
++/* The writable window is [RAW_CODE_PROTECT_END, RAW_CONFIG_PROTECT_START). Below it is
++ * the running code and anything the firmware needs; above it is the per-device config --
++ * VM, BTIF (CFG_BT_MAC_ADDR) and EXIF. Erasing BTIF makes the badge boot with no MAC and
++ * generate a NEW random one (user_cfg.c:327), silently changing the device address.
++ * Reads are unrestricted; only erase/write are bounded. */
++#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
++/* badge 2 (DG01) 4 MB map, read off a factory dump -- NOTHING like badge 1's:
++ *   CODE 0..0x0F7000 | VM 0x0F7000 | MODE 0x126000 | RESFS 0x1F7000..0x3FB000
++ * and inside RESFS the OEM's live `resfs` resource volume runs to 0x32F000, with our
++ * own FDB at 0x330000..0x358000 and the OTA loader staging at 0x3DD000..0x3EF000.
++ *
++ * Badge 1's window [0x17E000, 0x3BE000) is free on THAT board and emphatically not on
++ * this one: it spans the tail of MODE and the whole resfs volume, i.e. the stock
++ * firmware's resources. A raw write aimed at "scratch space" would destroy them --
++ * measured, this is the same class of mismatch that cost 160 KB when the FDB sat at
++ * badge 1's 0x240000.
++ *
++ * So the window here is the genuinely unclaimed span between the end of our FDB and the
++ * start of the loader's staging area: 0x358000..0x3DD000, 544 KB. */
++#define RAW_CODE_PROTECT_END      0x358000
++#define RAW_CONFIG_PROTECT_START  0x3DD000
++#else
++/* badge 1 (E87): CODE 0..0x17E000 | SDFILE/ui_res 0x17E000 | VIRFAT 0x33E000 | DATA 0x3BE000 */
++#define RAW_CODE_PROTECT_END      0x17E000
 +#define RAW_CONFIG_PROTECT_START  0x3BE000
++#endif
 +#define IOCTL_ERASE_SECTOR_CMD    200      /* IOCTL_ERASE_SECTOR (interface/utils/device/ioctl_cmds.h) */
 +
 +/* Raw access to internal flash (implemented in update.a / flash lib). */
@@ -5287,7 +5363,7 @@ index 826a990..28f0935 100644
  /*1: Enable Pinyin input method*/
  /*Requires: lv_keyboard*/
 diff --git a/SDK/apps/common/ui/lvgl_v8/lvgl_main.c b/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
-index 8cbf236..c88c77d 100644
+index 8cbf236..fa055ea 100644
 --- a/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
 +++ b/SDK/apps/common/ui/lvgl_v8/lvgl_main.c
 @@ -7,6 +7,8 @@
@@ -5322,7 +5398,7 @@ index 8cbf236..c88c77d 100644
  
      int msg_p[2 + sizeof(struct key_event) / 4];
  
-@@ -977,8 +986,1430 @@ u8 lvgl_ui_is_suspended(void)
+@@ -977,8 +986,1495 @@ u8 lvgl_ui_is_suspended(void)
      return lvgl_suspend_flag;
  }
  
@@ -5349,6 +5425,8 @@ index 8cbf236..c88c77d 100644
 +static lv_obj_t *g_detail_back;
 +static lv_obj_t *g_mouse_keytgt;
 +static lv_group_t *g_kp_group;
++/* 1 = the keypad group holds exactly one target (a screen's Back). Read by keypad_read. */
++volatile unsigned char g_kp_single = 0;
 +
 +/* ---- Settings + Update (the radio is BLE-only in Phase 1) ------------ */
 +static lv_obj_t *g_settings_scr;
@@ -5434,9 +5512,27 @@ index 8cbf236..c88c77d 100644
 + * tools (Scanner / Spoof / Mouse / Update) are gated behind a minimum battery level
 + * while NOT charging: below it a warning screen is shown instead and the radio is not
 + * powered on. */
-+#define BADGE_BLE_MIN_BATTERY    30     /* min battery % to allow BLE tools (matches OTA docs) */
++/* Minimum cell mV to allow the BLE tools. This replaces a "< 30%" test -- see
++ * badge_ble_battery_gate() for why the percentage cannot be trusted.
++ *
++ * badge 1 (E87): 3770 mV is exactly where 30% sits on the battery curve, so the gate
++ *   behaves as it always did on a board whose vbat is known to read accurately
++ *   (~3.85 V measured; see TCFG_POWER_OFF_VOLTAGE in sdk_config.h).
++ * badge 2 (DG01): provisionally permissive. This unit's vbat is suspected to read low
++ *   -- the 2000 mV poweroff cutoff that used to sit in sdk_config.h was a diagnostic for
++ *   exactly that -- and an over-tight gate here locks the radio, which also locks OTA
++ *   (badge_ble_battery_gate guards the update entry). Raise it to the 30% point once the
++ *   on-screen mV readout has been checked against a meter. */
++#ifdef CONFIG_BADGE_BOARD_DG01
++#define BADGE_BLE_MIN_MV         3400
++#else
++#define BADGE_BLE_MIN_MV         3770
++#endif
 +#define BADGE_CHARGE_PEEK_MS     5000   /* how long a key keeps the charge % visible */
 +#define BADGE_WARN_TIMEOUT_MS    3000   /* auto-dismiss the low-battery warning */
++/* One-button press tiers; the first two are also in lv_port_indev.c (keypad_read). */
++#define BADGE_BTN_LONG_MS        600
++#define BADGE_BTN_LOCK_MS        2000
 +static lv_obj_t *g_charge_scr;
 +static lv_obj_t *g_charge_lbl;         /* the big "NN%" */
 +static lv_obj_t *g_charge_status_lbl;  /* "CHARGING" / "CHARGED" under it */
@@ -5521,15 +5617,25 @@ index 8cbf236..c88c77d 100644
 +static void kp_set_menu(void)
 +{
 +    if (!g_kp_group) { return; }
-+    lv_group_remove_all_objs(g_kp_group);
++    lv_group_remove_all_objs(g_kp_group); g_kp_single = 0;
++#ifdef CONFIG_BADGE_BOARD_DG01
++    /* One button, so the menu MUST be keypad-navigable: touch is the only other way in and
++     * it cannot be relied on (dead on this unit as of 2026-09-17). keypad_read turns a short
++     * press into NEXT and a long one into ENTER; the main loop keeps the >=2 s press for
++     * lock, so nothing here competes with it. */
++    for (int i = 0; i < 4; i++) {
++        if (g_menu_btns[i]) { lv_group_add_obj(g_kp_group, g_menu_btns[i]); }
++    }
++#else
 +    /* Menu: the two hardware buttons are handled by the lock logic in the main loop
 +     * (Button 1 / back = lock). Tools are opened by touch, so the keypad group is left
 +     * EMPTY here — otherwise Button 1 (ENTER) would also activate a focused tool. */
++#endif
 +}
 +static void kp_set_settings(void)
 +{
 +    if (!g_kp_group) { return; }
-+    lv_group_remove_all_objs(g_kp_group);
++    lv_group_remove_all_objs(g_kp_group); g_kp_single = 0;
 +    lv_group_add_obj(g_kp_group, g_settings_btns[0]);
 +    lv_group_add_obj(g_kp_group, g_settings_btns[1]);
 +    lv_group_add_obj(g_kp_group, g_settings_btns[2]);
@@ -5538,8 +5644,13 @@ index 8cbf236..c88c77d 100644
 +static void kp_set_one(lv_obj_t *o)
 +{
 +    if (!g_kp_group) { return; }
-+    lv_group_remove_all_objs(g_kp_group);
++    lv_group_remove_all_objs(g_kp_group); g_kp_single = 0;
 +    lv_group_add_obj(g_kp_group, o);
++    /* Single-target screen: there is nothing to navigate to, so on a one-button board a
++     * SHORT press activates it instead of emitting a NEXT that goes nowhere. Without this
++     * the only way out of a tool was a long press, which is not discoverable and is what
++     * made the badge feel like it had trapped you. */
++    g_kp_single = 1;
 +    lv_group_focus_obj(o);
 +}
 +
@@ -5563,8 +5674,9 @@ index 8cbf236..c88c77d 100644
 +        lv_obj_center(g_warn_lbl);
 +    }
 +    extern u8 get_vbat_percent(void);
-+    lv_label_set_text_fmt(g_warn_lbl, "%s\n\nbattery %u%%\npress any button", txt, get_vbat_percent());
-+    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); }   /* keys just dismiss it */
++    lv_label_set_text_fmt(g_warn_lbl, "%s\n\nbattery %u%%\npress any button",
++                          txt, get_vbat_percent());
++    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); g_kp_single = 0; }   /* keys just dismiss it */
 +    lv_scr_load(g_warn_scr);
 +    g_warn_active = 1;
 +    g_warn_show_ms = timer_get_ms();
@@ -5584,9 +5696,15 @@ index 8cbf236..c88c77d 100644
 + * instead of powering the radio on. Returns 0 to proceed, 1 when BLOCKED. */
 +static u8 badge_ble_battery_gate(void)
 +{
-+    extern u8 get_vbat_percent(void);
++    extern u16 get_vbat_value(void);
 +    extern u8 get_charge_online_flag(void);
-+    if (get_vbat_percent() < BADGE_BLE_MIN_BATTERY && !get_charge_online_flag()) {
++    /* Gate on the VOLTAGE, not on the percentage. The SDK's percentage is only ever
++     * decremented while discharging (vbat_check()), so a gauge seeded low stays low
++     * forever and locks the radio at a perfectly healthy cell voltage -- measured on
++     * the DG01: 7% at boot, radio locked. The voltage is the raw measurement and has
++     * no such memory. It is also the quantity the cell actually cares about, and it
++     * sits well above the 3100 mV poweroff cutoff. */
++    if (get_vbat_value() < BADGE_BLE_MIN_MV && !get_charge_online_flag()) {
 +        badge_warn_show("BLUETOOTH LOCKED\nbattery too low\ncharge via USB");
 +        return 1;
 +    }
@@ -5600,6 +5718,11 @@ index 8cbf236..c88c77d 100644
 +    extern u8 get_charge_full_flag(void);
 +    if (!g_charge_lbl) { return; }
 +    lv_label_set_text_fmt(g_charge_lbl, "%u%%", get_vbat_percent());
++    /* The raw millivolts were shown here while the gauge was under suspicion (the curve is
++     * flat in the middle -- 30 mV per 10% between 20% and 50% -- so the percentage alone
++     * cannot tell a flat cell from a mis-scaled ADC). That question is settled: the reading
++     * tracks the curve correctly. get_vbat_value() is one line away if it is ever needed
++     * again -- see docs/dg01-protocol.md §13. */
 +    lv_label_set_text(g_charge_status_lbl, get_charge_full_flag() ? "CHARGED" : "CHARGING");
 +}
 +
@@ -5625,7 +5748,7 @@ index 8cbf236..c88c77d 100644
 +
 +    g_charge_active = 1;
 +    g_charge_bkl_on = 0;
-+    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); }
++    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); g_kp_single = 0; }
 +    if (!g_charge_scr) {
 +        g_charge_scr = lv_obj_create(NULL);
 +        lv_obj_clear_flag(g_charge_scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -5762,7 +5885,7 @@ index 8cbf236..c88c77d 100644
 +    extern void badge_touch_set_enable(u8 en);
 +    printf("lock: enter (display+touch off)\n");
 +    g_badge_locked = 1;
-+    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); }  /* keys do nothing on the lock image */
++    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); g_kp_single = 0; }  /* keys do nothing on the lock image */
 +    lv_scr_load(g_lock_scr);      /* parks on the image screen (not drawn — the panel goes to sleep) */
 +    badge_touch_set_enable(0);    /* stops touch polling (power saving) */
 +    lcd_sleep_ctrl(1);            /* backlight 0 + panel to sleep + power down */
@@ -5799,7 +5922,7 @@ index 8cbf236..c88c77d 100644
 +static void badge_lock_show(void)
 +{
 +    printf("lock: show image (locked)\n");
-+    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); }
++    if (g_kp_group) { lv_group_remove_all_objs(g_kp_group); g_kp_single = 0; }
 +    lv_scr_load(g_lock_scr);
 +}
 +
@@ -6747,13 +6870,31 @@ index 8cbf236..c88c77d 100644
 +     * touch off, so the badge powers on black (no RGB splash). A hardware key wakes it to the
 +     * lock image; a swipe opens the menu; the menu's "Lock" button returns here. */
 +    badge_menu_build();
++#ifdef CONFIG_BADGE_BOARD_DG01
++    /* DG01: boot with the DISPLAY ON, not suspended.
++     *
++     * This board has a single button (PB7) and its wake path has never been exercised on
++     * hardware. Booting suspended — as the E87 does — would mean that if that one button
++     * does not work, there is no way at all to turn the screen on: the unit would come up
++     * black with no input that reaches the UI. So show the lock image with the panel
++     * powered and touch live; a swipe opens the menu exactly as after a normal wake.
++     * g_badge_locked stays 0, so the main loop renders and lock_gesture_cb is armed. */
++    {
++        extern int lcd_drv_backlight_ctrl(u8 percent);
++        extern void badge_touch_set_enable(u8 en);
++        badge_lock_show();
++        lcd_drv_backlight_ctrl(g_bright_pct[g_bright_idx]);
++        badge_touch_set_enable(1);
++    }
++#else
 +    badge_lock_enter();
++#endif
 +    return;
 +#endif
  #if LV_USE_MONKEY != 0
      /*Create pointer monkey test*/
      lv_monkey_config_t monkey_pointer_config;
-@@ -1025,7 +2456,9 @@ static void lvgl_main_task(void *priv)
+@@ -1025,7 +2521,9 @@ static void lvgl_main_task(void *priv)
      lv_port_fs_init();
      lv_port_disp_init(priv);
      lv_port_indev_init();
@@ -6764,7 +6905,7 @@ index 8cbf236..c88c77d 100644
      lv_ui_src_pack_mode_init();
  
  #if LV_USE_GPU_COMPRESS
-@@ -1054,6 +2487,205 @@ static void lvgl_main_task(void *priv)
+@@ -1054,6 +2552,259 @@ static void lvgl_main_task(void *priv)
  
      ui_sysinfo_init();
  
@@ -6791,13 +6932,28 @@ index 8cbf236..c88c77d 100644
 +            extern volatile u8 g_badge_adkey_kv;
 +            /* USB/charge session: edge-detect the charge line (LDOin 5V present). On plug the
 +             * badge parks the whole UI on the black charge screen with the radio OFF; on unplug
-+             * it returns to the normal menu. Entry is deferred while an OTA transfer runs so the
-+             * mid-flash screen is never yanked. */
++             * it returns to the normal menu.
++             *
++             * Entry is deferred for the WHOLE update session -- both a live transfer and the
++             * screen waiting for one. The SDK's own OTA gate refuses to start below battery
++             * level 3 UNLESS the charger is online (rcsp_update.c:394), so "plugged in" is the
++             * one state in which a low battery can still be updated -- and it is also the
++             * safest, since the thing the gate guards against (running out mid-write) cannot
++             * happen. Stealing the screen and the radio the moment USB appeared made that
++             * state unreachable, which is what repeatedly blocked flashing a drained unit.
++             *
++             * The radio staying up on USB is the documented brownout risk (see
++             * badge_charge_screen_enter). It is the same risk the live-transfer deferral has
++             * always taken; the backlight -- by far the largest load -- is dimmed while
++             * waiting to buy back headroom. */
 +            {
 +                extern u8 get_charge_online_flag(void);
++                extern int lcd_drv_backlight_ctrl(u8 percent);
++                static u8 s_upd_dimmed = 0;
 +                u8 chg_now = get_charge_online_flag();
++                u8 upd_session = (g_badge_update_active || g_on_update_scr);
 +                if (chg_now && !g_charge_last_online) {              /* plug edge */
-+                    g_charge_waiting = g_badge_update_active;        /* defer during a live transfer */
++                    g_charge_waiting = upd_session;
 +                    if (!g_charge_waiting) {
 +                        badge_charge_screen_enter();
 +                    }
@@ -6806,9 +6962,17 @@ index 8cbf236..c88c77d 100644
 +                        badge_charge_screen_exit();
 +                    }
 +                    g_charge_waiting = 0;
-+                } else if (chg_now && g_charge_waiting && !g_badge_update_active) {
-+                    g_charge_waiting = 0;                            /* transfer ended: charge takes over */
++                } else if (chg_now && g_charge_waiting && !upd_session) {
++                    g_charge_waiting = 0;              /* update session over: charge takes over */
 +                    badge_charge_screen_enter();
++                }
++                /* Dim only while actually waiting on USB; restore as soon as either ends. */
++                if (chg_now && g_charge_waiting && !s_upd_dimmed) {
++                    s_upd_dimmed = 1;
++                    lcd_drv_backlight_ctrl(10);
++                } else if (s_upd_dimmed && !(chg_now && g_charge_waiting)) {
++                    s_upd_dimmed = 0;
++                    lcd_drv_backlight_ctrl(g_bright_pct[g_bright_idx]);
 +                }
 +                g_charge_last_online = chg_now;
 +            }
@@ -6842,6 +7006,36 @@ index 8cbf236..c88c77d 100644
 +            /* Not suspended: edge-detect the two hardware buttons for lock control.
 +             *   - Lock image: Button 1 (back) = suspend; Button 2 (other) = unlock -> menu.
 +             *   - Menu:       Button 1 (back) = lock (shows the image, the display stays on). */
++#ifdef CONFIG_BADGE_BOARD_DG01
++            /* One-button semantics, classified on release (see keypad_read for the other
++             * two tiers):
++             *   lock image : short = open the menu, long = suspend
++             *   menu       : >= 2 s = lock; shorter presses belong to LVGL, not to us
++             * Deliberately does NOT consume short/long in the menu -- that is what makes the
++             * badge navigable without touch. */
++            {
++                extern volatile u8 g_badge_btn_ev;
++                u8 ev = g_badge_btn_ev;
++                if (ev) {
++                    lv_obj_t *act = lv_scr_act();
++                    if (act == g_lock_scr) {
++                        /* Lock image: the keypad group is empty here, so the NEXT/ENTER that
++                         * keypad_read also emitted go nowhere and cannot double-act. */
++                        g_badge_btn_ev = 0;
++                        if (ev == 1) { lv_scr_load(g_menu_scr); kp_set_menu(); }
++                        else         { badge_lock_enter(); }
++                    } else if (ev == 3) {
++                        /* Very long press: ours everywhere. In the menu it locks; on any other
++                         * screen (a tool, or a stalled UPDATE with an empty group) it is the
++                         * only way back, so treat it as an escape rather than ignoring it. */
++                        g_badge_btn_ev = 0;
++                        badge_lock_show();
++                    } else {
++                        g_badge_btn_ev = 0;   /* short/long belong to LVGL on every other screen */
++                    }
++                }
++            }
++#else
 +            {
 +                static u8 s_lock_prev_kv = NO_KEY;
 +                u8 kv = g_badge_adkey_kv;
@@ -6862,6 +7056,7 @@ index 8cbf236..c88c77d 100644
 +                    }
 +                }
 +            }
++#endif
 +
 +            /* Update screen: red while waiting; green + Back locked while a transfer runs. */
 +            if (g_on_update_scr) {
@@ -6870,7 +7065,7 @@ index 8cbf236..c88c77d 100644
 +                    if (g_badge_update_active) {
 +                        lv_obj_set_style_bg_color(g_update_scr, lv_color_hex(0x006000), 0);
 +                        lv_label_set_text(g_update_lbl, "UPDATING...\ndo not power off");
-+                        lv_group_remove_all_objs(g_kp_group);   /* lock: ignore Back */
++                        lv_group_remove_all_objs(g_kp_group); g_kp_single = 0;   /* lock: ignore Back */
 +                    } else {
 +                        lv_obj_set_style_bg_color(g_update_scr, lv_color_hex(0x800000), 0);
 +                        lv_label_set_text(g_update_lbl, "UPDATE MODE\nwaiting for connection\nbutton 1 = back");
@@ -6971,7 +7166,7 @@ index 8cbf236..c88c77d 100644
  
          ret = os_taskq_pend_timeout(NULL, msg, ARRAY_SIZE(msg), timeout); //超时是为了模型改变，但未触发刷屏，设置最大延时30毫秒
 diff --git a/SDK/apps/common/ui/lvgl_v8/porting/lv_port_indev.c b/SDK/apps/common/ui/lvgl_v8/porting/lv_port_indev.c
-index ee2e4d7..c05f284 100644
+index ee2e4d7..5a64680 100644
 --- a/SDK/apps/common/ui/lvgl_v8/porting/lv_port_indev.c
 +++ b/SDK/apps/common/ui/lvgl_v8/porting/lv_port_indev.c
 @@ -96,12 +96,20 @@ void lv_indev_set_touch_timer_en(int en)
@@ -7022,13 +7217,20 @@ index ee2e4d7..c05f284 100644
  
      /*Later you should create group(s) with `lv_group_t * group = lv_group_create()`,
       *add objects to the group with `lv_group_add_obj(group, obj)`
-@@ -482,8 +499,44 @@ static int ui_scr_key_event_handler(struct key_event *key)
+@@ -482,8 +499,106 @@ static int ui_scr_key_event_handler(struct key_event *key)
  }
  
  /*Will be called by the library to read the mouse*/
 +#ifdef CONFIG_BADGE_MENU
 +/* Current ADKEY value, published by the ADKEY driver (adkey.c) and polled here. */
 +volatile u8 g_badge_adkey_kv = NO_KEY;
++/* One-button press tiers. Kept in sync with the same two constants in lvgl_main.c, which
++ * owns the third tier: < LONG = next, LONG..LOCK = select, >= LOCK = lock (main loop). */
++#define BADGE_BTN_LONG_MS 600
++#define BADGE_BTN_LOCK_MS 2000
++/* Last classified press: 1 = short, 2 = long, 3 = very long. Set by keypad_read on release,
++ * cleared by the main loop once it has acted. */
++volatile u8 g_badge_btn_ev = 0;
 +#endif
 +
  static void keypad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
@@ -7040,6 +7242,61 @@ index ee2e4d7..c05f284 100644
 +    static uint32_t s_last = LV_KEY_ENTER;
 +    u8 kv = g_badge_adkey_kv;
 +    uint32_t lvkey = 0;
++#ifdef CONFIG_BADGE_BOARD_DG01
++    /* The DG01 has ONE physical button (adkey_config.c collapses its whole AD window to
++     * KEY_AD_NUM0), so it cannot spare a key for NEXT and another for ENTER. Split it in
++     * time instead, the usual one-button idiom:
++     *     short press (< BADGE_BTN_LONG_MS)  -> LV_KEY_NEXT   move the focus
++     *     long press  (>= BADGE_BTN_LONG_MS) -> LV_KEY_ENTER  activate the focused item
++     * The key is classified on RELEASE and emitted as a single PRESS, then RELEASE on the
++     * next poll, so LVGL sees one clean event and a held button never repeats.
++     *
++     * Without this the badge is unusable whenever touch is dead: the menu is reachable but
++     * nothing in it can be activated. Measured on the DG01 2026-09-17 -- touch did not work
++     * and the single button could only suspend. */
++    {
++        static uint32_t s_down_ms = 0;
++        static u8 s_down = 0;
++        static uint32_t s_emit = 0;
++        if (kv != NO_KEY && !s_down) {
++            s_down = 1;
++            s_down_ms = timer_get_ms();
++        } else if (kv == NO_KEY && s_down) {
++            s_down = 0;
++            uint32_t held = (uint32_t)(timer_get_ms() - s_down_ms);
++            /* Classify ONCE, here, and publish the verdict. The main loop used to re-derive
++             * `held` from the same raw key value on its own 10 ms cadence while this runs on
++             * LVGL's 16 ms one, so the two sampled different instants and disagreed either
++             * side of a threshold: a ~2 s press could lock AND activate a tool, a ~600 ms
++             * press on the lock image could open the menu AND immediately enter an item.
++             * One classifier, one verdict, consumed by whoever it belongs to. */
++            if (held >= BADGE_BTN_LOCK_MS) {
++                g_badge_btn_ev = 3;     /* lock -- the main loop's business, no LVGL key */
++                s_emit = 0;
++            } else if (held >= BADGE_BTN_LONG_MS) {
++                g_badge_btn_ev = 2;
++                s_emit = LV_KEY_ENTER;
++            } else {
++                /* Short press. On a screen whose group holds exactly one target -- every
++                 * tool's Back button -- NEXT has nowhere to go, so the press would appear
++                 * to do nothing and the user is stuck inside the tool. Activate instead. */
++                extern volatile unsigned char g_kp_single;
++                g_badge_btn_ev = 1;
++                s_emit = g_kp_single ? LV_KEY_ENTER : LV_KEY_NEXT;
++            }
++        }
++        if (s_emit) {                   /* one-shot press; the release follows next poll */
++            s_last = s_emit;
++            data->key = s_emit;
++            data->state = LV_INDEV_STATE_PR;
++            s_emit = 0;
++            return;
++        }
++        data->key = s_last;
++        data->state = LV_INDEV_STATE_REL;
++        return;
++    }
++#endif
 +    if (kv == KEY_AD_NUM0) {
 +        lvkey = LV_KEY_ENTER;   /* Button 1 = select / back */
 +    } else if (kv == KEY_AD_NUM1) {
@@ -15886,10 +16143,64 @@ index eb881b5..a8e0806 100644
          version += 4;
          printf("%s\n", version);
 diff --git a/SDK/apps/watch/battery/battery_level.c b/SDK/apps/watch/battery/battery_level.c
-index 60c84b7..e36d92c 100644
+index 60c84b7..22dc063 100644
 --- a/SDK/apps/watch/battery/battery_level.c
 +++ b/SDK/apps/watch/battery/battery_level.c
-@@ -643,7 +643,16 @@ void vbat_check(void *priv)
+@@ -41,6 +41,7 @@ enum {
+ } VBAT_STATUS;
+ 
+ #define VBAT_DETECT_CNT         3 //每次更新电池电量采集的次数
++#define SNAP_UP_CHECKS          3 //consecutive too-low checks before correcting the gauge upward
+ #define VBAT_DETECT_TIME        10L //每次采集的时间间隔
+ #define VBAT_UPDATE_SLOW_TIME   60000L //慢周期更新电池电量
+ #define VBAT_UPDATE_FAST_TIME   10000L //快周期更新电池电量
+@@ -626,29 +627,87 @@ void vbat_check(void *priv)
+     static u8 low_power_cnt = 0;
+     static u8 power_normal_cnt = 0;
+     static u8 charge_online_flag = 0;
++    static u8 snap_up_cnt = 0;      //consecutive checks the gauge has read far too low
+     static u8 low_voice_first_flag = 1;//进入低电后先提醒一次
+-    static u32 bat_voltage = 0;
++    static u16 bat_samples[VBAT_DETECT_CNT];
+     u16 tmp_percent;
+ 
+-    bat_voltage += get_vbat_voltage();
++    bat_samples[unit_cnt] = get_vbat_voltage();
+     unit_cnt++;
+     if (unit_cnt < VBAT_DETECT_CNT) {
+         return;
+     }
+     unit_cnt = 0;
+ 
+-    //更新电池电压,以及电池百分比,还有电池等级
+-    cur_battery_voltage = bat_voltage / VBAT_DETECT_CNT;
+-    bat_voltage = 0;
++    /* MEDIAN of the samples, not the mean. This board's vbat reading has occasional
++     * wild outliers -- measured on the DG01 2026-09-18: 4260, 2316, 4248 mV on three
++     * consecutive 60 s checks while charging, with the cell steady. A mean lets one
++     * outlier drag the result (2316+4250+4250)/3 = 3605 mV; the median discards it.
++     *
++     * The outliers are not cosmetic. They reach three separate consumers:
++     *   - the gauge, which then reports a percentage that is simply wrong;
++     *   - the charge state machine, which sees a reading above TCFG_CHARGE_FULL_V
++     *     (4200) and declares the cell full, closes the charger, then recharges when
++     *     it drops below TCFG_RECHARGE_VOLTAGE -- measured cycling every ~14 s, so the
++     *     charger spends most of its time off and the cell barely charges;
++     *   - check_power_on_voltage(), which powers the unit off after 11 consecutive
++     *     samples below poweroff_tone_v. Ten consecutive 2316 mV readings were observed
++     *     at one boot, one short of a spurious shutdown.
++     *
++     * VBAT_DETECT_CNT is 3, so this is a three-element median: the value that is
++     * neither the min nor the max. The static assert keeps the two in step -- widening
++     * the sample count without widening this would silently ignore the extra samples. */
++#if (VBAT_DETECT_CNT != 3)
++#error "the median below is hardcoded for 3 samples; update it if VBAT_DETECT_CNT changes"
++#endif
++    {
++        u16 a = bat_samples[0], b = bat_samples[1], c = bat_samples[2];
++        u16 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
++        cur_battery_voltage = (c < lo) ? lo : ((c > hi) ? hi : c);
++    }
      tmp_percent = battery_calc_percent(cur_battery_voltage);
  #if (VBAT_PERCENT_MODE_SEL == VBAT_PERCENT_MODE_OPEN_CIRCUIT_VOLTAGE)
      if (get_charge_online_flag()) {
@@ -15899,6 +16210,8 @@ index 60c84b7..e36d92c 100644
 +         * +1/check advance takes ~1%/min to catch up — leaving the gauge (and the OTA low-battery
 +         * gate) reading ~empty at ~full voltage. Snap up on a large gap so the gauge reflects
 +         * reality; normal charging (small gap) keeps the +1 smoothing intact. */
++        snap_up_cnt = 0;   /* charging: don't carry a partial discharge-side count across the
++                            * plug, or the first transient after unplugging commits instantly */
 +        if (cur_battery_percent < 20 && tmp_percent > cur_battery_percent + 20) {
 +            printf("[BAT-DBG] percent snap-up %d->%d (drained-boot, V=%dmV)\n",
 +                   cur_battery_percent, tmp_percent, cur_battery_voltage);
@@ -15907,6 +16220,36 @@ index 60c84b7..e36d92c 100644
              cur_battery_percent++;
          }
      } else {
+-        if (tmp_percent < cur_battery_percent) {
+-            cur_battery_percent--;
++        /* Discharge. The stock SDK only ever DECREMENTS here, which makes the gauge a
++         * one-way downward ratchet: once cur_battery_percent is seeded low it can never
++         * climb back on battery power, however healthy the cell is. It gets seeded low
++         * in two real ways -- a stale SOC restored from VM by bat_info_need_recheck()
++         * (it returns the stored percent and discards the measurement when the two are
++         * within RECHECK_SOC), or a first sample taken while the backlight is at full
++         * and the cell sags. Measured on the DG01 2026-09-17: stuck at 7% (~3542 mV by
++         * the curve) with the OEM reporting a healthy level for the same cell.
++         *
++         * The charging branch above already needed a snap-up for exactly this reason;
++         * this mirrors it. The gap must hold for SNAP_UP_CHECKS consecutive checks so a
++         * load transient (backlight + radio) can't snap the gauge upward, and the -1
++         * smoothing is untouched for normal discharge. */
++        if (tmp_percent > cur_battery_percent + 20) {
++            if (++snap_up_cnt >= SNAP_UP_CHECKS) {
++                printf("[BAT-DBG] percent snap-up %d->%d (discharge, V=%dmV)\n",
++                       cur_battery_percent, tmp_percent, cur_battery_voltage);
++                cur_battery_percent = tmp_percent;
++                snap_up_cnt = 0;
++            }
++        } else {
++            snap_up_cnt = 0;
++            if (tmp_percent < cur_battery_percent) {
++                cur_battery_percent--;
++            }
+         }
+     }
+     bat_info_storage_task_sync();
 diff --git a/SDK/apps/watch/battery/charge.c b/SDK/apps/watch/battery/charge.c
 index 0375c1f..43bd82d 100644
 --- a/SDK/apps/watch/battery/charge.c
@@ -16053,7 +16396,7 @@ index 5792ccd..c728f9b 100644
  
  #else
 diff --git a/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo.c b/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo.c
-index e006cb3..30e6983 100644
+index e006cb3..1a1644c 100644
 --- a/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo.c
 +++ b/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo.c
 @@ -210,7 +210,7 @@ struct linein_dev_data linein_data = {
@@ -16081,7 +16424,7 @@ index e006cb3..30e6983 100644
  #if TCFG_APP_RTC_EN
      rtc_dev_init(&rtc_dev_config);
  #endif
-@@ -683,6 +692,434 @@ void board_gpio_config_soft_poweroff(u32 *gpio_config)
+@@ -683,6 +692,591 @@ void board_gpio_config_soft_poweroff(u32 *gpio_config)
  }
  
  
@@ -16142,14 +16485,23 @@ index e006cb3..30e6983 100644
 +#define AXS_RST_IO      IO_PORTA_02
 +#define AXS_INT_IO      IO_PORTB_08
 +#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
-+/* badge 2's CST816D sits on the HW-iic0 pins (the factory tp_cst816d uses hw iic0). We bit-bang
-+ * over them as plain GPIO — the HW iic0 controller is left uninitialized in this build. */
-+#define AXS_SDA_IO      IO_PORTA_05   /* HW_I2C0 DAT */
-+#define AXS_SCL_IO      IO_PORTA_06   /* HW_I2C0 CLK */
++/* badge 2 was ASSUMED to carry a CST816D on the HW-iic0 pins (the factory tp_cst816d uses
++ * hw iic0), bit-banged as plain GPIO — the HW iic0 controller is left uninitialized here.
++ * That assumption was never verified on a unit and measured FALSE on the DG01 2026-09-17:
++ * touch was completely dead. Both the controller AND the pin pair are therefore probed at
++ * runtime; see badge_tp_autodetect(). These are only the starting guess. */
++#define AXS_SDA_DEFAULT IO_PORTA_05   /* HW_I2C0 DAT */
++#define AXS_SCL_DEFAULT IO_PORTA_06   /* HW_I2C0 CLK */
 +#else
-+#define AXS_SDA_IO      IO_PORTB_01
-+#define AXS_SCL_IO      IO_PORTB_02
++#define AXS_SDA_DEFAULT IO_PORTB_01
++#define AXS_SCL_DEFAULT IO_PORTB_02
 +#endif
++/* Live bus pins. Everything below reaches the bus through these two, so the probe can move
++ * the whole driver to another pin pair just by reassigning them. */
++static u32 g_tp_sda = AXS_SDA_DEFAULT;
++static u32 g_tp_scl = AXS_SCL_DEFAULT;
++#define AXS_SDA_IO      g_tp_sda
++#define AXS_SCL_IO      g_tp_scl
 +#define AXS_REG_TOUCH   0x01
 +#define AXS_REG_ID      0x08
 +#define AXS_I2C_HALF_US 5
@@ -16164,10 +16516,15 @@ index e006cb3..30e6983 100644
 +static inline int  axs_scl_get(void) { return gpio_read(AXS_SCL_IO); }
 +static inline void axs_dly(void) { udelay(AXS_I2C_HALF_US); }
 +
++/* Clock-stretch allowance. A real part releases SCL in a few microseconds; 1000 us was
++ * a pathological budget -- on a bus where SCL never rises (wrong pin, no pull-up, another
++ * owner driving it) it turned a 6-byte read into ~80 ms of spinning. 200 us is still an
++ * order of magnitude more than any of these controllers needs. */
++#define AXS_SCL_STRETCH_US  200
 +static void axs_scl_release_wait(void)
 +{
 +    axs_scl_rel();
-+    for (int g = 0; g < 1000 && !axs_scl_get(); g++) {
++    for (int g = 0; g < AXS_SCL_STRETCH_US && !axs_scl_get(); g++) {
 +        udelay(1);
 +    }
 +}
@@ -16228,6 +16585,15 @@ index e006cb3..30e6983 100644
 +    axs_i2c_stop();
 +    return len;
 +}
++static int axs_i2c_write_reg(u8 addr7, u8 reg, u8 val)
++{
++    axs_i2c_start();
++    if (!axs_i2c_wr(addr7 << 1)) { axs_i2c_stop(); return -1; }
++    if (!axs_i2c_wr(reg))        { axs_i2c_stop(); return -2; }
++    if (!axs_i2c_wr(val))        { axs_i2c_stop(); return -3; }
++    axs_i2c_stop();
++    return 0;
++}
 +static void axs_reset(void)
 +{
 +    gpio_set_mode(IO_PORT_SPILT(AXS_RST_IO), PORT_OUTPUT_HIGH);
@@ -16269,14 +16635,27 @@ index e006cb3..30e6983 100644
 +}
 +/* ----------------------------------------------------------------------------
 + *  CST816D touch panel (Hynitron) — second variant. Reuses the bit-bang
-+ *  I2C primitives from the AXS above (SDA=PA5/SCL=PA6 for badge2, RST=PA2), only the
-+ *  addr and register map change. 7-bit addr 0x15; chip-ID reg 0xA7 == 0xB5.
-+ *  Reads reg 0x01 -> 6 bytes: d[1]=finger count, X=((d[2]&0x0F)<<8)|d[3],
-+ *  Y=((d[4]&0x0F)<<8)|d[5]. Assumes the pins are identical to the AXS wiring on this
-+ *  board family — if touch doesn't respond on the bench, that pin/bus is the lever to try. */
++ *  I2C primitives from the AXS above (SDA/SCL chosen by the probe, RST=PA2), only the
++ *  addr and register map change. 7-bit addr 0x15; chip-ID reg 0xA7.
++ *
++ *  Register base and field offsets are taken from the VENDOR's own driver for this part,
++ *  which ships in this tree -- apps/common/device/touch_panel/cst816d/cst816d.c:899:
++ *      reg_addr = 0x02; read 5 bytes;
++ *      state = buf[0] != 0;  x = buf[2] | ((buf[1] & 0xF) << 8);
++ *                            y = buf[4] | ((buf[3] & 0xF) << 8);
++ *  so on this part FingerNum sits at 0x02 (not 0x01 as the generic CST816S datasheet
++ *  numbering suggests), XposH/L at 0x03/0x04 and YposH/L at 0x05/0x06.
++ *
++ *  Reading from 0x01 into d[0..5] therefore lands FingerNum in d[1] and the coordinates in
++ *  d[2..5], which is exactly what the code below expects. An earlier edit in this session
++ *  "corrected" the base to 0x00 on the strength of the generic datasheet map; that was
++ *  WRONG and is reverted here -- it would have put GestureID in d[1], so `fingers != 1`
++ *  would have rejected nearly every real touch. The vendor driver is the authority.
++ * -------------------------------------------------------------------------- */
 +#define CST_ADDR_7BIT   0x15
-+#define CST_REG_TOUCH   0x01
++#define CST_REG_TOUCH   0x01   /* -> d[1]=FingerNum(0x02), X=d[2..3], Y=d[4..5] */
 +#define CST_REG_CHIPID  0xA7
++#define CST_REG_SLEEP   0xFE   /* DisAutoSleep: nonzero keeps the part awake */
 +static int cst816d_init(void)
 +{
 +    gpio_set_mode(IO_PORT_SPILT(AXS_INT_IO), PORT_INPUT_PULLUP_10K);
@@ -16287,7 +16666,17 @@ index e006cb3..30e6983 100644
 +        id = 0;
 +        axs_i2c_read_reg(CST_ADDR_7BIT, CST_REG_CHIPID, &id, 1);
 +        printf("cst816d: ID try%d = 0x%02x\n", t, id);
-+        if (id) { printf("cst816d: OK (id 0x%02x)\n", id); return 0; }
++        if (id) {
++            printf("cst816d: OK (id 0x%02x)\n", id);
++            /* This driver POLLS (axs_poll_task); it never uses the INT line. The CST816x
++             * auto-sleeps after a couple of idle seconds and then stops ACKing until a
++             * touch or a reset wakes it, which makes polled touch come and go. Hold it
++             * awake. Failure here is not fatal — touch still works while the part is
++             * awake — so only log it. */
++            int r = axs_i2c_write_reg(CST_ADDR_7BIT, CST_REG_SLEEP, 0x01);
++            if (r) { printf("cst816d: DisAutoSleep failed (%d)\n", r); }
++            return 0;
++        }
 +        os_time_dly(10);
 +    }
 +    printf("cst816d: no response (check RST PA2 / power / addr 0x15)\n");
@@ -16308,10 +16697,90 @@ index e006cb3..30e6983 100644
 +    return 1;
 +}
 +
-+/* Per-board touch selector: badge 2 (BADGE2 panel) = CST816D, badge 1 (ST77916) = AXS5106L. */
++/* ----------------------------------------------------------------------------
++ *  Touch autodetect (badge 2 only)
++ *
++ *  badge 1 is known hardware: an AXS5106L on PB1/PB2, proven on the bench, so it keeps
++ *  its fixed binding. badge 2 is NOT: the CST816D-on-PA5/PA6 pairing was inherited from
++ *  the factory tp_cst816d driver and assumed, never measured, and on the DG01 it gives no
++ *  touch at all. Rather than guess again through four combinations one OTA at a time, probe
++ *  them: two controllers x two pin pairs, keep whichever answers its chip-ID register.
++ *
++ *  RST stays PA2 (TCFG_TP_RESET_IO) for every candidate — if the DG01 wires reset somewhere
++ *  else, every probe fails and g_tp_kind stays 0, which the on-screen readout reports as
++ *  "TP none". That is the next thing to suspect if this finds nothing.
++ * -------------------------------------------------------------------------- */
 +#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
-+#define badge_tp_init  cst816d_init
-+#define badge_tp_read  cst816d_read
++u8 g_tp_kind   = 0;    /* 0 = nothing answered, 1 = AXS5106L, 2 = CST816D */
++u8 g_tp_id     = 0;    /* the chip-ID byte that answered */
++u8 g_tp_pinset = 0;    /* 0 = PB1/PB2, 1 = PA5/PA6 */
++
++static int badge_tp_autodetect(void)
++{
++    static const u32 pinsets[2][2] = {
++        { IO_PORTB_01, IO_PORTB_02 },   /* badge 1 wiring */
++        { IO_PORTA_05, IO_PORTA_06 },   /* HW-iic0 pins */
++    };
++    for (u8 p = 0; p < 2; p++) {
++        g_tp_sda = pinsets[p][0];
++        g_tp_scl = pinsets[p][1];
++        gpio_set_mode(IO_PORT_SPILT(AXS_INT_IO), PORT_INPUT_PULLUP_10K);
++        axs_sda_rel(); axs_scl_rel(); axs_dly();
++        axs_reset();
++
++        /* 0x00 and 0xFF are what a stuck-low and a floating bus read back; accepting either
++         * would lock the driver onto a device that isn't there and make the on-screen readout
++         * lie confidently ("TP CST PA5/6 id=FF"). Require a plausible ID. */
++        u8 id[2] = {0, 0};
++        if (axs_i2c_read_reg(AXS_ADDR_7BIT, AXS_REG_ID, id, 2) == 2
++            && (id[0] || id[1]) && !(id[0] == 0xFF && id[1] == 0xFF)) {
++            g_tp_kind = 1; g_tp_id = id[0]; g_tp_pinset = p;
++            printf("tp: AXS5106L on %s, id=0x%02x%02x\n",
++                   p ? "PA5/PA6" : "PB1/PB2", id[0], id[1]);
++            return 0;
++        }
++        u8 cid = 0;   /* CST816S/T/D report 0xB4..0xB7 */
++        if (axs_i2c_read_reg(CST_ADDR_7BIT, CST_REG_CHIPID, &cid, 1) == 1
++            && cid >= 0xB4 && cid <= 0xB7) {
++            g_tp_kind = 2; g_tp_id = cid; g_tp_pinset = p;
++            axs_i2c_write_reg(CST_ADDR_7BIT, CST_REG_SLEEP, 0x01);   /* polled: keep it awake */
++            printf("tp: CST816D on %s, id=0x%02x\n", p ? "PA5/PA6" : "PB1/PB2", cid);
++            return 0;
++        }
++    }
++    g_tp_kind = 0;
++    g_tp_sda = AXS_SDA_DEFAULT;
++    g_tp_scl = AXS_SCL_DEFAULT;
++    printf("tp: no controller answered on either pin pair (check RST PA2 / TP power)\n");
++    return -1;
++}
++
++/* Panel/controller orientation. Measured on the DG01 2026-09-17: touch tracks the display
++ * rotated by 180 degrees, i.e. the controller's origin is the opposite corner from the
++ * panel's. Both axes invert; the panel is square (360x360, lcd_conf.h) so no swap is needed.
++ *
++ * This belongs HERE, at the single point where a raw reading enters the system, and not in
++ * the UI: every consumer (LVGL, the Mouse trackpad, the on-screen readout) then sees one
++ * consistent coordinate space. If a future unit turns out to be mirrored on one axis only,
++ * invert just that axis here -- nothing else changes. */
++#define TP_ROTATE_180   1
++
++static int badge_tp_read_any(u16 *px, u16 *py)
++{
++    int r;
++    if (g_tp_kind == 1)      { r = axs5106l_read(px, py); }
++    else if (g_tp_kind == 2) { r = cst816d_read(px, py); }
++    else                     { return 0; }
++#if TP_ROTATE_180
++    if (r) {
++        *px = (*px < LCD_WIDTH)  ? (LCD_WIDTH  - 1 - *px) : 0;
++        *py = (*py < LCD_HEIGHT) ? (LCD_HEIGHT - 1 - *py) : 0;
++    }
++#endif
++    return r;
++}
++#define badge_tp_init  badge_tp_autodetect
++#define badge_tp_read  badge_tp_read_any
 +#else
 +#define badge_tp_init  axs5106l_init
 +#define badge_tp_read  axs5106l_read
@@ -16403,11 +16872,11 @@ index e006cb3..30e6983 100644
 +
 +    /* touch: brings up the AXS5106L and, on each touch, draws a yellow dot at the
 +     * reported coordinate and prints it over the UART. */
-+    if (axs5106l_init() == 0) {
++    if (badge_tp_init() == 0) {          /* per-board: CST816D on badge 2, AXS5106L on badge 1 */
 +        printf("lcd_test: touch ready — draw dots on touch\n");
 +        u16 tx, ty;
 +        while (1) {
-+            if (axs5106l_read(&tx, &ty)) {
++            if (badge_tp_read(&tx, &ty)) {
 +                printf("touch: %d, %d\n", tx, ty);
 +                axs_draw_dot(lcd, tx, ty, 0xFFFF00, w, h);
 +            }
@@ -16422,7 +16891,9 @@ index e006cb3..30e6983 100644
 +
 +#ifdef CONFIG_BADGE_MENU
 +/* R3 touch for the LVGL menu: serves lv_port_indev's get_touch_x_y_status() from the
-+ * badge's real AXS5106L (the CST816D driver is disabled — it floods iic0 + hangs).
++ * badge's touch panel, selected per board by badge_tp_init/badge_tp_read (badge 2 =
++ * CST816D bit-banged over the HW-iic0 pins, badge 1 = AXS5106L on PB1/PB2; the HW iic0
++ * controller is left uninitialized either way, which is what used to flood it and hang).
 + * Reuses the AXS5106L bring-up that already works in lcd_test_task above. */
 +/* Touch for the LVGL menu. axs_poll_task does the one-time AXS5106L bring-up (axs_reset
 + * uses os_time_dly, so it needs task context) and then idles; get_touch_x_y_status()
@@ -16439,6 +16910,8 @@ index e006cb3..30e6983 100644
 +/* Enable/disable touch polling at runtime (used by the lock/screensaver mode). This only
 + * changes the gate — it doesn't re-init the chip, so wake is instant and races nothing against
 + * axs_poll_task's one-time init (which sets g_axs_ready). */
++static volatile u8 g_tp_reinit_req = 0;   /* wake path asks the poll task to re-init */
++
 +void badge_touch_set_enable(u8 en)
 +{
 +    g_axs_want = en ? 1 : 0;
@@ -16449,9 +16922,17 @@ index e006cb3..30e6983 100644
 +         * (badge_lock_wake, task context) with the shared rail already back on, so
 +         * axs_reset's ~300ms delay is safe here. Confirmed on UART: without this, "want=1 ready=1
 +         * but the read FAILS" after every wake. */
-+        g_axs_ready = (badge_tp_init() == 0);
++        g_tp_reinit_req = 1;    /* the poll task owns the bus; ask it to re-init */
++    } else {
++        g_tp_reinit_req = 0;    /* lock raced the wake: drop it, the rail is going away */
 +    }
 +}
++
++/* Touch cache, written ONLY by axs_poll_task and read by get_touch_x_y_status. X and Y live
++ * in ONE word so a reader cannot take x from sample N and y from sample N+1 and report a
++ * point that never existed (visible as a one-frame cursor jump on the Mouse trackpad). */
++static volatile u32 g_tp_cxy = 0;      /* (x << 16) | y */
++static volatile u8  g_tp_cdown = 0;
 +
 +static void axs_poll_task(void *priv)
 +{
@@ -16461,7 +16942,26 @@ index e006cb3..30e6983 100644
 +        printf("touch: init failed\n");
 +    }
 +    while (1) {
-+        os_time_dly(100);
++        if (g_tp_reinit_req && g_axs_want) {
++            /* Wake path: suspend cut the shared LCD/TP rail, so the controller lost all its
++             * state and must be re-inited (RST pulse + boot + ID read). Done here rather than
++             * in badge_touch_set_enable so that this task is the ONLY thing that ever drives
++             * the bus -- no concurrent transactions, no half-finished ones. */
++            g_tp_reinit_req = 0;
++            g_axs_ready = (badge_tp_init() == 0);
++            g_tp_cdown = 0;
++        }
++        if (g_axs_ready && g_axs_want) {
++            u16 tx = 0, ty = 0;
++            if (badge_tp_read(&tx, &ty)) {
++                g_tp_cxy = ((u32)tx << 16) | ty; g_tp_cdown = 1;
++            } else {
++                g_tp_cdown = 0;
++            }
++        } else {
++            g_tp_cdown = 0;
++        }
++        os_time_dly(2);     /* ~20 ms: well inside LVGL's input period, off its timer */
 +    }
 +}
 +
@@ -16473,13 +16973,13 @@ index e006cb3..30e6983 100644
 +{
 +    static int32_t last_x = 0, last_y = 0;
 +    static u8 prev = 0;
-+    u16 tx = 0, ty = 0;
-+    u8 now = (g_axs_ready && g_axs_want && badge_tp_read(&tx, &ty)) ? 1 : 0;   /* gated live read */
++    u8 now = g_tp_cdown;          /* cache only -- NO I2C on LVGL's timer (see above) */
 +    if (now) {
-+        last_x = tx;
-+        last_y = ty;
-+        *x = tx;
-+        *y = ty;
++        u32 xy = g_tp_cxy;          /* single read: x and y are consistent by construction */
++        last_x = (int32_t)(xy >> 16);
++        last_y = (int32_t)(xy & 0xFFFF);
++        *x = last_x;
++        *y = last_y;
 +        *status = 1;
 +    } else {
 +        /* Released: report the last touched point (not garbage) so LVGL registers a
@@ -16488,10 +16988,10 @@ index e006cb3..30e6983 100644
 +        *y = last_y;
 +        *status = 0;
 +    }
-+    if (now != prev) {                  /* log DN/UP transition on PA4 */
-+        prev = now;
-+        printf("touch %s %d,%d\n", now ? "DN" : "UP", (int)last_x, (int)last_y);
-+    }
++    (void)prev;   /* the DN/UP printf lived here; a blocking 115200-baud write inside
++                   * LVGL's read_timer is exactly what this restructure exists to avoid.
++                   * The same transition is visible on the on-screen readout's counter. */
++
 +}
 +#endif
 +
@@ -16517,7 +17017,7 @@ index e006cb3..30e6983 100644
  
  
 diff --git a/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo_cfg.h b/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo_cfg.h
-index 1757096..c422a10 100644
+index 1757096..edec02b 100644
 --- a/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo_cfg.h
 +++ b/SDK/apps/watch/board/br35/board_ac707n_demo/board_ac707n_demo_cfg.h
 @@ -21,7 +21,11 @@
@@ -16533,16 +17033,35 @@ index 1757096..c422a10 100644
  //                                  NTC配置                                       //
  //*********************************************************************************//
  #define NTC_DET_EN      0
-@@ -111,7 +115,7 @@
+@@ -111,8 +115,26 @@
  #define TCFG_DATA_STORAGE_VM_ENABLE   		DISABLE		//用户数据存VM
  
  #define TCFG_DATA_DEV_NAME         			"watch_data"
 -#define TCFG_DATA_FLASH_DEV_PATY_BASE	  		0x1D6000	//
++#ifdef CONFIG_BADGE_BOARD_DG01
++/* The DG01's FDB must NOT sit at the shared 0x240000 default: that address is INSIDE the
++ * OEM's resfs volume (0x1F7000..0x32F000), so the badge punches a 160K hole through the
++ * stock firmware's resource filesystem simply by running. Measured 2026-09-18 — after a
++ * full custom->OEM cycle, MODE came back byte-identical and resfs was 96% intact, with the
++ * damage confined to this FDB and 8K at the volume header; the OEM booted but could not
++ * open its resources.
++ *
++ * 0x330000 is the first 4K page past the end of the resfs VOLUME. The RESFS partition runs
++ * on to 0x3FB000, but the OEM leaves 0x330000..0x3FB000 unused, so the FDB lives there
++ * without touching anything the stock firmware reads.
++ *
++ * Upper bound: the OTA loader stages at 0x3DD000..0x3EF000 (measured), so the FDB must end
++ * well before that. 0x330000 + 0x28000 = 0x358000 leaves 548K of clearance. */
++#define TCFG_DATA_FLASH_DEV_PATY_BASE	  		0x330000	// past the OEM resfs volume
++#define TCFG_DATA_FLASH_DEV_PATY_SIZE	  		0x28000 	// 160K -> ends 0x358000
++#else
 +#define TCFG_DATA_FLASH_DEV_PATY_BASE	  		0x240000	//
  #define TCFG_DATA_FLASH_DEV_PATY_SIZE	  		0x28000 	// 160K
++#endif
  #else//(!TCFG_UI_ENABLE)
  //------------------------------------------------------------------------------------------
-@@ -139,6 +143,31 @@
+ //ONLY_INSIDE_FLASH//只有内置flash，按8M规划
+@@ -139,6 +161,69 @@
  #define TCFG_DATA_FLASH_DEV_PATY_BASE			0x7FE000//(TCFG_WATCH_INSERT_FLASH_BASE + TCFG_WATCH_INSERT_FLASH_SIZE)
  #define TCFG_DATA_FLASH_DEV_PATY_SIZE			0x28000 //160K
  
@@ -16560,6 +17079,43 @@ index 1757096..c422a10 100644
 +#define TCFG_DATA_STORAGE_FDB_EXFLASH_ENABLE  DISABLE		//用户数据存FDB&外挂flash
 +#define TCFG_DATA_STORAGE_VM_ENABLE   		DISABLE		//用户数据存VM
 +
++#ifdef CONFIG_BADGE_BOARD_DG01
++/* ---------------------------------------------------------------------------
++ * DG01 flash plan. The DG01 is also 4 MB, but its factory partition table is
++ * NOTHING like the E87's, so the E87 bases above would land on live OEM data.
++ * Read off a dump of the unit (firmware/oem_DG01.bin) -- see
++ * docs/dg01-protocol.md "The DG01's real partition table":
++ *
++ *   0x000000-0x0F7000  CODE (uboot + app + config), 988K used
++ *   0x0FA000-0x0FD000  VM / user-config area (0x5A5A5A magic)
++ *   0x126000-0x1CF000  sdfile "JL"     -- JLUI resources (JL.sty/.res/.str/.tab)
++ *   0x1F7000-0x330000  sdfile "resfs"  -- watch faces (watch, bgp_wa1..6.avi)
++ *   0x330000-0x3FE000  erased / free
++ *   0x3DC000-0x3F0000  <- the RCSP OTA stages its downloaded loader HERE (80K),
++ *                         with its update flag at 0x3FD000. Measured by diffing
++ *                         the flash before and after a pass-1 OTA. NOTHING
++ *                         writable may live in this window.
++ *   0x3FE000-0x3FF000  key_mac (the BT MAC -- never write it)
++ *
++ * Two hard conflicts with the E87 plan: its SDFILE (0x17E000+1.75M) covers the
++ * DG01's live "resfs", and its watch_data FDB (0x3BE000+160K) sits on top of the
++ * OTA loader staging window. So the DG01 gets its own partitions, all of them
++ * inside the factory-erased region and stopping short of 0x3D0000 to leave the
++ * loader window (plus slack) alone. The OEM's own resource FSs are left intact:
++ * this firmware carries its resources inside the code image, and the OTA only
++ * rewrites [0, 0x100000) anyway.
++ * ------------------------------------------------------------------------- */
++//fs sdfile (mode.bin / UI resources)
++#define TCFG_SDFILE_FLASH_DEV_PATY_SIZE	  			0x60000  //384K
++#define TCFG_SDFILE_FLASH_DEV_PATY_BASE	  			0x330000 //first erased sector above the OEM resfs
++//virfat (watch.bin)
++#define TCFG_VIRFAT_FLASH_DEV_PATY_BASE        		0x390000 //(SDFILE_BASE + SDFILE_SIZE)
++#define TCFG_VIRFAT_FLASH_DEV_PATY_SIZE        		0x30000  //192K
++//watch_data (FDB)
++#define TCFG_DATA_DEV_NAME         			"watch_data"
++#define TCFG_DATA_FLASH_DEV_PATY_BASE			0x3C0000 //(VIRFAT_BASE + VIRFAT_SIZE)
++#define TCFG_DATA_FLASH_DEV_PATY_SIZE			0x10000  //64K, ends 0x3D0000 -- clear of the loader window
++#else
 +//fs sdfile (mode.bin / UI resources)
 +#define TCFG_SDFILE_FLASH_DEV_PATY_SIZE	  			0x1C0000 // 1.75M
 +#define TCFG_SDFILE_FLASH_DEV_PATY_BASE	  			0x17e000 // ~1.5M-8k: the code lives below here
@@ -16570,37 +17126,48 @@ index 1757096..c422a10 100644
 +#define TCFG_DATA_DEV_NAME         			"watch_data"
 +#define TCFG_DATA_FLASH_DEV_PATY_BASE			0x3BE000//(VIRFAT_BASE + VIRFAT_SIZE)
 +#define TCFG_DATA_FLASH_DEV_PATY_SIZE			0x28000 //160K
++#endif
 +
  //------------------------------------------------------------------------------------------
  //ONLY_INSIDE_FLASH//只有内置flash，按16M规划
  #elif ((!TCFG_NORFLASH_DEV_ENABLE)&&(!TCFG_NANDFLASH_DEV_ENABLE)&&(CONFIG_FLASH_SIZE == 16*1024*1024))
-@@ -259,6 +288,13 @@
+@@ -259,6 +344,15 @@
  #define TCFG_TOUCH_PANEL_ENABLE 				1
  #define TCFG_TP_CST816D_ENABLE 					1
  #define TCFG_TP_FT3X68_ENABLE 					0
 +#ifdef CONFIG_BADGE_MENU
-+/* R3: the badge carries an AXS5106L, not a CST816D. The CST816D driver floods iic0 (no chip)
-+ * and HANGS, so it's disabled; LVGL's touch is served by our own get_touch_x_y_status()
-+ * (board_ac707n_demo.c) backed by the AXS5106L. TP_INIT() becomes a no-op. */
++/* R3: neither board uses the stock tp_panel driver. The E87 carries an AXS5106L (the
++ * CST816D driver floods iic0 with no chip there and HANGS); the DG01 does carry a
++ * CST816D, but on the HW-iic0 pins, and board_ac707n_demo.c bit-bangs it as GPIO
++ * rather than bringing up the iic0 controller. Either way LVGL's touch is served by
++ * our own get_touch_x_y_status() and TP_INIT() becomes a no-op. */
 +#undef TCFG_TP_CST816D_ENABLE
 +#define TCFG_TP_CST816D_ENABLE 					0
 +#endif
  #define TCFG_TP_SLEEP_EN                        1
  #define TCFG_TP_INT_IO      					IO_PORTB_08 //TP中断脚
  #define TCFG_TP_RESET_IO    					IO_PORTA_02 //TP复位脚
-@@ -269,8 +305,9 @@
+@@ -269,8 +363,18 @@
  //*********************************************************************************//
  #define TCFG_SPI_LCD_ENABLE 1//spi lcd开关
  #define TCFG_LCD_SPI_ICNA3310B_ENABLE 0
 -#define TCFG_LCD_SPI_GC9B71_ENABLE  1
--#define TCFG_LCD_SPI_ST77916_ENABLE 0
 +#define TCFG_LCD_SPI_GC9B71_ENABLE  0
++/* Panel selector -- driven by the Makefile's BOARD= flag (CONFIG_BADGE_BOARD_DG01).
++ * This single knob also picks the touch controller and the ADKEY thresholds: the
++ * DG01-specific code in board_ac707n_demo.c and board/adkey_config.c is all gated
++ * on TCFG_LCD_SPI_BADGE2_ENABLE. */
++#ifdef CONFIG_BADGE_BOARD_DG01
+ #define TCFG_LCD_SPI_ST77916_ENABLE 0
++#define TCFG_LCD_SPI_BADGE2_ENABLE  1  // DG01 wristband: "badge2_360" panel (lc9855-class, DE/DF paging) + CST816D touch
++#else
 +#define TCFG_LCD_SPI_ST77916_ENABLE 1  // badge 1 panel (HTY243165LCM, DE/DF paging) + AXS5106L touch
 +#define TCFG_LCD_SPI_BADGE2_ENABLE  0  // second panel variant = lc9855 (DE/DF paging)
++#endif
  #define TCFG_LCD_SPI_SH8501A_ENABLE 0
  #define TCFG_LCD_SPI_SH8601A_ENABLE 0
  #define TCFG_LCD_QSPI_ST77903_V2_ENABLE 0
-@@ -550,7 +587,7 @@
+@@ -550,7 +654,7 @@
  #define TCFG_QMI8658_DETECT_IO               	(-1) //传感器中断io
  #define TCFG_QMI8658_AD0_SELETE_IO              (-1) //iic地址选择io
  //lsm6dsl cfg
@@ -25322,7 +25889,7 @@ index 415f592..4bb9f0a 100644
  	apps/common/third_party_profile/jieli/rcsp/adv/ble_rcsp_adv.c \
  	apps/common/third_party_profile/jieli/rcsp/rcsp_functions/rcsp.c \
 diff --git a/SDK/cpu/br35/tools/download.c b/SDK/cpu/br35/tools/download.c
-index 6956fdc..4b7c259 100644
+index 6956fdc..f0d65fe 100644
 --- a/SDK/cpu/br35/tools/download.c
 +++ b/SDK/cpu/br35/tools/download.c
 @@ -4,6 +4,7 @@
@@ -25352,7 +25919,7 @@ index 6956fdc..4b7c259 100644
  
  
  cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data.bin i_ram_data_code.bin > app.bin
-@@ -39,11 +42,75 @@ cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data
+@@ -39,11 +42,89 @@ cat text.bin data.bin data_code.bin aec.bin aac.bin psr_data_code.bin d_ram_data
  
  /* /opt/utils/strip-ini -i isd_config.ini -o isd_config.ini */
  
@@ -25381,6 +25948,20 @@ index 6956fdc..4b7c259 100644
 +    cp download/watch/config.dat config.dat 2>/dev/null || true
 +fi
 +
++## The DG01's factory image carries no user_api.bin. Including it packs a top-level
++## entry that pushes the app area from 0x1000 to 0xa000 and inflates CODE_LEN from
++## 0xF7000 to 0x100000 -- the unit's update loader then finds no file matching its
++## local alignment/offset and pass 2 writes nothing. Board comes from the same -D the
++## Makefile feeds this file's preprocessor.
++#ifdef CONFIG_BADGE_BOARD_DG01
++BADGE_BOARD="${BADGE_BOARD:-dg01}"
++#else
++BADGE_BOARD="${BADGE_BOARD:-e87}"
++#endif
++EX_API_ARG="-ex_api_bin user_api.bin"
++if [ "${BADGE_BOARD}" = "dg01" ]; then EX_API_ARG=""; fi
++echo "download.sh: board ${BADGE_BOARD}"
++
 +KEY_ARG=""
 +if [ -n "${BADGE_CHIPKEY}" ] && [ -f "download/watch/chipkey_${BADGE_CHIPKEY}.bin" ]; then
 +    KEY_ARG="-key download/watch/chipkey_${BADGE_CHIPKEY}.bin"
@@ -25399,7 +25980,7 @@ index 6956fdc..4b7c259 100644
 +    -uboot uboot.boot -app app.bin \
 +    -res cfg_tool.bin p11_code.bin stream.bin config.dat \
 +    ${KEY_ARG} \
-+    -ex_api_bin user_api.bin \
++    ${EX_API_ARG} \
 +    -flash-params flash_params_v3.bin \
 +    -output-fw jl_isd.fw \
 +    -output-ufw update.ufw
@@ -25429,6 +26010,65 @@ index 6956fdc..4b7c259 100644
 +fi
  
  #else
+ 
+diff --git a/SDK/cpu/br35/tools/isd_config_rule.c b/SDK/cpu/br35/tools/isd_config_rule.c
+index 2eac6ee..e2e17d3 100644
+--- a/SDK/cpu/br35/tools/isd_config_rule.c
++++ b/SDK/cpu/br35/tools/isd_config_rule.c
+@@ -403,6 +403,46 @@ FILE_LIST = (file = ota.bin: type = 100);
+ // #	1:  下载代码时不操作指定区域
+ // #	2:  下载代码时给指定区域加上保护
+ // ############################################################################
++#ifdef CONFIG_BADGE_BOARD_DG01
++// ############################################################################
++// # DG01: the on-flash area table must match the unit's factory table, or the
++// # RCSP update loader rejects the image (UPDATE_RESULT_UFW_ALGIN_OF_OFFSET_
++// # MATCH_ERR / UFW_CANNOT_FIND_VM_AREA) and pass 2 writes nothing.
++// # Read off firmware/oem_DG01.bin with every entry CRC verified.
++// # isd_download requires ASCENDING addresses across both sections and allows at
++// # most 6 entries in [RESERVED_CONFIG].
++// #
++// # RESFS (0x1F7000-0x3FB000) is deliberately NOT declared. The OEM carries it as a
++// # child of a separate EXT_RESERVED directory, which isd_download cannot reproduce:
++// # it enforces globally ascending addresses and always sorts [RESERVED_EXPAND_CONFIG]
++// # after [RESERVED_CONFIG], so RESFS(0x1F7000) after BTIF(0x3FE000) is rejected
++// # ("reserved(RESFS) config address is less then the prev reserved(BTIF)") - verified.
++// # Declaring it in [RESERVED_CONFIG] instead would make it a 7th child of app_area_head
++// # rather than the sibling directory the OEM uses. Omitting it here leaves app_area_head
++// # with exactly the OEM's six children; scripts/fix_area_table.py then grafts the OEM's
++// # EXT_RESERVED/RESFS block back on verbatim.
++// #
++// # (An earlier comment here claimed the loader never walks EXT_RESERVED children. That is
++// # wrong -- update.a exports tranverse_ext_reserve_file_head. What protects RESFS is the
++// # entry's `res` byte: 0x81 = 0x80|OPT1 = "do not operate", per the OPT semantics below.)
++// ############################################################################
++[RESERVED_CONFIG]
++PRCT_ADR = 0;
++PRCT_LEN = CODE_LEN;
++PRCT_OPT = 2;
++VM_ADR = 0;
++VM_LEN = 24K;
++VM_OPT = 1;
++MODE_ADR = 0x126000;
++MODE_LEN = 0xD1000;
++MODE_OPT = 1;
++EXIF_ADR = 0x3FD000;
++EXIF_LEN = 0x1000;
++EXIF_OPT = 1;
++BTIF_ADR = 0x3FE000;
++BTIF_LEN = 0x1000;
++BTIF_OPT = 1;
++#else
+ [RESERVED_CONFIG]
+ BTIF_ADR = CONFIG_BTIF_ADDR;
+ BTIF_LEN = CONFIG_BTIF_LEN;
+@@ -571,6 +611,7 @@ FINDMY_OPT = CONFIG_FINDMY_INFO_OPT;
+ 
+ #endif
+ 
++#endif
+ [BURNER_CONFIG]
+ SIZE = CONFIG_BURNER_INFO_SIZE;
  
 diff --git a/SDK/cpu/br35/ui_driver/lcd_drive/lcd_drive.c b/SDK/cpu/br35/ui_driver/lcd_drive/lcd_drive.c
 index 4306c6f..9e592e1 100644

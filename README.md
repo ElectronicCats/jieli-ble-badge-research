@@ -126,9 +126,15 @@ fail *silently*:
 
 - **Build the firmware from source** — two commands:
   ```sh
-  scripts/setup-badge-build.sh      # once: toolchain + SDK + patch + post-build tools + chipkey
-  scripts/build-badge-fw.sh --ota   # each build: app.bin + a flashable BLE-OTA .ufw
+  scripts/setup-badge-build.sh                  # once: toolchain + SDK + patch + post-build tools + chipkey
+  scripts/build-badge-fw.sh --ota               # each build: app.bin + a flashable BLE-OTA .ufw
+  scripts/build-badge-fw.sh --board dg01 --ota  # …for the DG01 wristband instead
   ```
+  `--board` picks the target hardware: **`e87`** (default, the DragonJAR badge — ST77916 panel,
+  AXS5106L touch, 2 buttons) or **`dg01`** (the wristband — `badge2_360` panel, CST816D touch,
+  1 button), and packages the image for that unit's OTA protocol. The two are *not*
+  interchangeable; see
+  [Two boards](docs/build-badge-firmware.md#two-boards-e87-and-dg01).
   The custom firmware lives as a patch ([`patches/badge/badge-menu.patch`](patches/badge)) on top
   of the vanilla JieLi SDK, which is the git submodule at
   `tools/community-re/jieli-sdks/e_badge_707_sdk_200` (pinned at the vanilla `main` commit and
@@ -217,7 +223,7 @@ research tools plus an on-device UI driven entirely from the badge. Its features
 | **E87** | The badge model. Also called the *DragonJAR badge* in this repo; it advertises as `EC-BADGE` once flashed. |
 | **ZRun** | The stock phone app. Its BLE OTA is the only foothold the OEM firmware exposes. |
 | **Qix** | The OEM's proprietary OTA protocol on BLE service **`FD00`**; opcode **`0xC0`** starts an app-only update. |
-| **RCSP** | JieLi's generic command protocol (service `AE00`), which Qix rides on. |
+| **RCSP** | JieLi's generic command protocol (service `AE00`). On the E87 it **coexists with Qix as a peer service**, it is not a layer underneath it: auth, target/sys info, filesystem and file upload ride RCSP/`AE00`, while Qix control + OTA ride `FD00` on the same connection. The 6-step auth handshake goes raw on `AE01`/`AE02` and gates only the RCSP side. |
 | **`.ufw`** | JieLi's update-image container: a header + CRC-checked entry list wrapping `flash.bin`, `ota.bin`, config… |
 | **uboot** | The resident bootloader that performs the CODE-partition rewrite. The **OEM** one can do it over BLE; the SDK-native one cannot. |
 | **fw-custom** | Not a firmware — a *packaging*: your `app.bin` spliced into an OEM `.ufw` so the OEM uboot survives. |
