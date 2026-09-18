@@ -5,6 +5,8 @@ firmware — and how to put it back, either **wired over USB-ISP** (no OTA at al
 path) or **over BLE** as the [custom → OEM](ota-howto.md#4-custom--oem-restore-the-stock-firmware)
 restore leg.
 
+> Applies to both units; on the DG01 use `firmware/oem_DG01.bin` and chipkey `0xB165`.
+
 All of it is the *only* part of the whole flow that is **not over BLE**: it needs physical access
 to the chip's `DP`/`DM` pads and a way to put it in USB download (UBOOT) mode — a vendor USB
 updater, a DIY adapter such as the prototype [`tools/pi-pico-jl-dongle`](../tools/pi-pico-jl-dongle),

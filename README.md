@@ -1,6 +1,6 @@
 # jieli-ble-badge-research
 
-Reverse-engineering a **$10 JieLi AC707N / BR35 e-badge (E87)** — round 360×360 RGB565 display,
+Reverse-engineering a **$10 JieLi AC707N / BR35 e-badge (E87 & DG01)** — round 360×360 RGB565 display,
 AXS5106L capacitive touch, 2 ADKEY buttons, 4 MB NOR flash, BLE — and flashing **100 % custom
 firmware onto a sealed OEM badge over BLE**: no USB, no opening the case, no loader.
 

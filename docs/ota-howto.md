@@ -6,6 +6,8 @@ How to flash and update firmware on the JieLi AC707N / BR35 e-badge **entirely o
 > ⚠️ **Security research / educational use only** — on hardware you own. See
 > [DISCLAIMER.md](../DISCLAIMER.md). A failed OTA can require USB-ISP recovery.
 
+> **E87 only.** The DG01 has no `FD00` service — its OTA is pure RCSP, via `qix rcsp-flash`.
+
 The badge is reflashed **directly over the OEM app-only BLE OTA** (the path the ZRun app uses).
 The custom firmware is packaged **fw-custom** — your `app.bin` spliced into an OEM `.ufw`,
 which keeps the **OEM uboot** byte-identical — so a single `qix flash --oem` hands the image to the
