@@ -1281,10 +1281,10 @@ index 9b9bcd2..cc1a0db 100644
  
 diff --git a/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c
 new file mode 100644
-index 0000000..d0e632e
+index 0000000..7f0e662
 --- /dev/null
 +++ b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c
-@@ -0,0 +1,577 @@
+@@ -0,0 +1,590 @@
 +/*
 + * Qix OTA server over BLE (GATT service C2E6FD00) for the e_badge watch firmware.
 + *
@@ -1347,8 +1347,21 @@ index 0000000..d0e632e
 + * single-bank geometry, so the resident uboot writes the code partition on next boot. */
 +#if (QIX_OTA_APPLY && defined(CONFIG_BADGE_MENU) && TCFG_COMPELTE_UFW_LC_EN && !CONFIG_DOUBLE_BANK_ENABLE)
 +#define QIX_OTA_STAGE_SINGLE_BANK  1
++#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
++/* badge 2 (DG01): the only unclaimed span is 0x358000..0x3DD000 -- between the end of
++ * our FDB and the OTA loader's staging area. See qix_raw_flash.c for the full map and
++ * why badge 1's [0x17E000,0x3BE000) is NOT free here (it covers the OEM's resfs volume).
++ *
++ * That is 544 KB, and a staged image is ~1 MB, so the check below will reject every
++ * real transfer on this board. That is deliberate and correct: there is nowhere safe to
++ * stage a full image on a DG01 that still holds the stock resources. Use the RCSP path
++ * (qix rcsp-flash), which writes CODE in place and needs no scratch area. */
++#define QIX_STAGE_BASE    0x358000u
++#define QIX_STAGE_END     0x3DD000u
++#else
 +#define QIX_STAGE_BASE    0x17E000u   /* free raw region [0x17E000,0x3BE000): SDFILE+VIRFAT as scratch */
 +#define QIX_STAGE_END     0x3BE000u
++#endif
 +#define QIX_ERASE_SECTOR_CMD  200     /* IOCTL_ERASE_SECTOR (matches qix_raw_flash.c) */
 +extern int  tzflash_write(const void *buf, u32 len, u32 offset);
 +extern int  tzflash_ioctl(u32 cmd, u32 arg);
@@ -1883,10 +1896,10 @@ index 0000000..80dff66
 +#endif /* QIX_OTA_SERVER_H */
 diff --git a/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c
 new file mode 100644
-index 0000000..8c52efb
+index 0000000..750f1ca
 --- /dev/null
 +++ b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_raw_flash.c
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,369 @@
 +/*
 + * Qix raw-flash service — part of the badge menu firmware (-DCONFIG_BADGE_MENU).
 + * Adds direct erase/write/read access to ANY flash partition on top of the existing
@@ -1938,15 +1951,33 @@ index 0000000..8c52efb
 +#define QIX_CMD_RAW_APPLY         0xD4   /* [addr LE32][len LE32]: apply a staged code .ufw */
 +#define QIX_CMD_RAW_RET_APPLY     0xDC   /* [st]: 0 ok (device verifies + resets to uboot) */
 +
-+/* 4 MB map: CODE 0..0x17E000 | SDFILE/ui_res 0x17E000 | VIRFAT 0x33E000 | DATA 0x3BE000 */
-+#define RAW_CODE_PROTECT_END      0x17E000
 +#define RAW_FLASH_END             0x400000
-+/* Per-device config at the top: DATA 0x3BE000 | VM | BTIF (holds CFG_BT_MAC_ADDR) |
-+ * EXIF, up to 0x400000. All OPT=1 (preserved by the .ufw apply). Raw erase/write must
-+ * never reach it: erasing BTIF makes the badge boot with no MAC and generate a NEW random
-+ * one (user_cfg.c:327), silently changing the device address. Staging tops out at
-+ * 0x3BE000 anyway, so this only rejects out-of-range commands. Reads are unrestricted. */
++/* The writable window is [RAW_CODE_PROTECT_END, RAW_CONFIG_PROTECT_START). Below it is
++ * the running code and anything the firmware needs; above it is the per-device config --
++ * VM, BTIF (CFG_BT_MAC_ADDR) and EXIF. Erasing BTIF makes the badge boot with no MAC and
++ * generate a NEW random one (user_cfg.c:327), silently changing the device address.
++ * Reads are unrestricted; only erase/write are bounded. */
++#if (defined TCFG_LCD_SPI_BADGE2_ENABLE && TCFG_LCD_SPI_BADGE2_ENABLE)
++/* badge 2 (DG01) 4 MB map, read off a factory dump -- NOTHING like badge 1's:
++ *   CODE 0..0x0F7000 | VM 0x0F7000 | MODE 0x126000 | RESFS 0x1F7000..0x3FB000
++ * and inside RESFS the OEM's live `resfs` resource volume runs to 0x32F000, with our
++ * own FDB at 0x330000..0x358000 and the OTA loader staging at 0x3DD000..0x3EF000.
++ *
++ * Badge 1's window [0x17E000, 0x3BE000) is free on THAT board and emphatically not on
++ * this one: it spans the tail of MODE and the whole resfs volume, i.e. the stock
++ * firmware's resources. A raw write aimed at "scratch space" would destroy them --
++ * measured, this is the same class of mismatch that cost 160 KB when the FDB sat at
++ * badge 1's 0x240000.
++ *
++ * So the window here is the genuinely unclaimed span between the end of our FDB and the
++ * start of the loader's staging area: 0x358000..0x3DD000, 544 KB. */
++#define RAW_CODE_PROTECT_END      0x358000
++#define RAW_CONFIG_PROTECT_START  0x3DD000
++#else
++/* badge 1 (E87): CODE 0..0x17E000 | SDFILE/ui_res 0x17E000 | VIRFAT 0x33E000 | DATA 0x3BE000 */
++#define RAW_CODE_PROTECT_END      0x17E000
 +#define RAW_CONFIG_PROTECT_START  0x3BE000
++#endif
 +#define IOCTL_ERASE_SECTOR_CMD    200      /* IOCTL_ERASE_SECTOR (interface/utils/device/ioctl_cmds.h) */
 +
 +/* Raw access to internal flash (implemented in update.a / flash lib). */
@@ -16112,7 +16143,7 @@ index eb881b5..a8e0806 100644
          version += 4;
          printf("%s\n", version);
 diff --git a/SDK/apps/watch/battery/battery_level.c b/SDK/apps/watch/battery/battery_level.c
-index 60c84b7..8178c8e 100644
+index 60c84b7..22dc063 100644
 --- a/SDK/apps/watch/battery/battery_level.c
 +++ b/SDK/apps/watch/battery/battery_level.c
 @@ -41,6 +41,7 @@ enum {
@@ -16123,15 +16154,53 @@ index 60c84b7..8178c8e 100644
  #define VBAT_DETECT_TIME        10L //每次采集的时间间隔
  #define VBAT_UPDATE_SLOW_TIME   60000L //慢周期更新电池电量
  #define VBAT_UPDATE_FAST_TIME   10000L //快周期更新电池电量
-@@ -626,6 +627,7 @@ void vbat_check(void *priv)
+@@ -626,29 +627,87 @@ void vbat_check(void *priv)
      static u8 low_power_cnt = 0;
      static u8 power_normal_cnt = 0;
      static u8 charge_online_flag = 0;
 +    static u8 snap_up_cnt = 0;      //consecutive checks the gauge has read far too low
      static u8 low_voice_first_flag = 1;//进入低电后先提醒一次
-     static u32 bat_voltage = 0;
+-    static u32 bat_voltage = 0;
++    static u16 bat_samples[VBAT_DETECT_CNT];
      u16 tmp_percent;
-@@ -643,12 +645,46 @@ void vbat_check(void *priv)
+ 
+-    bat_voltage += get_vbat_voltage();
++    bat_samples[unit_cnt] = get_vbat_voltage();
+     unit_cnt++;
+     if (unit_cnt < VBAT_DETECT_CNT) {
+         return;
+     }
+     unit_cnt = 0;
+ 
+-    //更新电池电压,以及电池百分比,还有电池等级
+-    cur_battery_voltage = bat_voltage / VBAT_DETECT_CNT;
+-    bat_voltage = 0;
++    /* MEDIAN of the samples, not the mean. This board's vbat reading has occasional
++     * wild outliers -- measured on the DG01 2026-09-18: 4260, 2316, 4248 mV on three
++     * consecutive 60 s checks while charging, with the cell steady. A mean lets one
++     * outlier drag the result (2316+4250+4250)/3 = 3605 mV; the median discards it.
++     *
++     * The outliers are not cosmetic. They reach three separate consumers:
++     *   - the gauge, which then reports a percentage that is simply wrong;
++     *   - the charge state machine, which sees a reading above TCFG_CHARGE_FULL_V
++     *     (4200) and declares the cell full, closes the charger, then recharges when
++     *     it drops below TCFG_RECHARGE_VOLTAGE -- measured cycling every ~14 s, so the
++     *     charger spends most of its time off and the cell barely charges;
++     *   - check_power_on_voltage(), which powers the unit off after 11 consecutive
++     *     samples below poweroff_tone_v. Ten consecutive 2316 mV readings were observed
++     *     at one boot, one short of a spurious shutdown.
++     *
++     * VBAT_DETECT_CNT is 3, so this is a three-element median: the value that is
++     * neither the min nor the max. The static assert keeps the two in step -- widening
++     * the sample count without widening this would silently ignore the extra samples. */
++#if (VBAT_DETECT_CNT != 3)
++#error "the median below is hardcoded for 3 samples; update it if VBAT_DETECT_CNT changes"
++#endif
++    {
++        u16 a = bat_samples[0], b = bat_samples[1], c = bat_samples[2];
++        u16 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
++        cur_battery_voltage = (c < lo) ? lo : ((c > hi) ? hi : c);
++    }
      tmp_percent = battery_calc_percent(cur_battery_voltage);
  #if (VBAT_PERCENT_MODE_SEL == VBAT_PERCENT_MODE_OPEN_CIRCUIT_VOLTAGE)
      if (get_charge_online_flag()) {
