@@ -57,6 +57,12 @@ OP_SEND_FW_UPDATE_BLOCK: int = 0xE5
 OP_GET_REFRESH_FW_STATUS: int = 0xE6
 OP_SET_DEVICE_REBOOT:    int = 0xE7
 OP_NOTIFY_CONTENT_SIZE:  int = 0xE8
+# Not an OTA opcode, but load-bearing for the two-pass relink: JieLi's reference master
+# (rcsp_update_master.c `_rcsp_switch_device_commucation_mode_to_ble`, and the SuperBand
+# app's `NotifyCommunicationWayCmd`) sends this the moment E6 returns 0x80, on the STILL
+# OPEN pass-1 link, and then does NOT disconnect — the device acks, drops the link itself
+# and reboots into the loader ~1 s later.
+OP_SWITCH_DEVICE:        int = 0x0B   # payload {way, reconnect}: 0x00 = BLE, 0x01 = reconnect-by-adv
 
 # ── status code tables (for human-readable diagnostics) ──────────────────────
 # Values are the firmware's UPDATE_FLAG_* enum (rcsp_update.c:89-98), NOT the old
@@ -107,6 +113,8 @@ class RcspOtaUpdater:
     def __init__(self, transport):
         self.transport = transport
         self._seq: int = 0
+        # Set from the 0x0B ack: 1 = the device will come back on a DIFFERENT address.
+        self.relink_flag: int | None = None
 
     # ── inner framing helpers ────────────────────────────────────────────────
     def _next_seq(self) -> int:
@@ -255,7 +263,14 @@ class RcspOtaUpdater:
         # into the device-driven loop, handling the E3 ack if/when it shows up.
         self._send_command(OP_ENTER_UPDATE_MODE)
         log.info("E3 sent — entering device-driven transfer loop (%d bytes to serve)", len(ufw))
+        return self._serve_loop(ufw, on_progress, timeout, loop_timeout)
 
+    def _serve_loop(self, ufw: bytes, on_progress, timeout: float,
+                    loop_timeout: float) -> int:
+        """Answer the device's E5 pulls until it signals done, then query E6.
+
+        Shared by pass 1 (after E3) and pass 2 (after the relink), which is the whole
+        point of splitting it out — pass 2 must NOT re-send E1/E2."""
         total = len(ufw)
         high_water = 0
 
@@ -307,6 +322,75 @@ class RcspOtaUpdater:
                 log.debug("transfer loop: ignoring frame flag=0x%02x cmd=0x%02x payload=%s",
                           frame.flag, frame.cmd, inner.payload.hex())
 
+    # ── two-pass relink (pass 1 -> loader -> pass 2) ─────────────────────────
+    def switch_communication_way(self, timeout: float = 6.0) -> int | None:
+        """0x0B {0x00, 0x01} on the still-open pass-1 link. Returns the ack byte.
+
+        The ack matters: JieLi's SDK reads it as `setReconnectUseADV(flag == 1)` — the
+        device telling us whether it will come back under a DIFFERENT BLE address (to be
+        matched via a `JLOTA` manufacturer advert) or the same one."""
+        sn = self._send_command(OP_SWITCH_DEVICE, bytes([0x00, 0x01]))
+        try:
+            inner = self._wait_response(OP_SWITCH_DEVICE, sn, timeout)
+        except QixTimeoutError:
+            log.warning("0x0B: no ack in %.0fs — continuing anyway", timeout)
+            return None
+        flag = inner.payload[0] if inner.payload else None
+        log.info("0x0B switch-communication-way ack: flag=%s%s", flag,
+                 " (device will return on a DIFFERENT address)" if flag == 1 else "")
+        return flag
+
+    def wait_for_peripheral_disconnect(self, timeout: float = 20.0) -> bool:
+        """Wait for the DEVICE to drop the link. Do NOT disconnect ourselves.
+
+        The reference master polls at 1 s logging "Waiting for ble disconnect...". Our
+        old code disconnected here, which skipped the device-side sequencing."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            client = getattr(self.transport, "_client", None)
+            if client is None or not getattr(client, "is_connected", False):
+                log.info("peripheral dropped the link — it is rebooting into the loader")
+                return True
+            time.sleep(1.0)
+            log.debug("waiting for ble disconnect...")
+        log.warning("peripheral still connected after %.0fs", timeout)
+        return False
+
+    def looks_like_loader(self, timeout: float = 6.0) -> bool:
+        """0x03 GetTargetInfo, then check attr 9 byte0 (mandatory_upgrade_flag).
+
+        This is the SDK's own pass-2 gate: `TargetInfoResponse.isMandatoryUpgrade()`.
+        On the running app it is 0; on the loader it is 1."""
+        sn = self._send_command(0x03, bytes.fromhex("ffffffff") + b"\x00")
+        inner = self._wait_response(0x03, sn, timeout)
+        tlv = inner.payload
+        i = 0
+        while i + 2 <= len(tlv):
+            ln = tlv[i]
+            if ln == 0:
+                break
+            ty = tlv[i + 1]
+            data = tlv[i + 2:i + 1 + ln]
+            if ty == 9:
+                flag = data[0] if data else 0
+                log.info("attr 9 mandatory_upgrade_flag = %d (%s)", flag,
+                         "LOADER" if flag == 1 else "normal app")
+                return flag == 1
+            i += 1 + ln
+        log.warning("attr 9 not present in target info — cannot confirm loader")
+        return False
+
+    def flash_pass2(self, ufw: bytes, on_progress=None, timeout: float = 8.0,
+                    loop_timeout: float = 15.0) -> int:
+        """Pass 2 against the loader: E3 only, then the device-driven loop.
+
+        E1/E2 are deliberately NOT re-sent — the reference master skips them once its
+        `isRelink` latch is set, and re-running them against the loader is the most
+        likely source of the E6=0x04/0x05 rejections we saw."""
+        self._send_command(OP_ENTER_UPDATE_MODE)
+        log.info("pass 2: E3 sent (E1/E2 skipped) — serving %d bytes", len(ufw))
+        return self._serve_loop(ufw, on_progress, timeout, loop_timeout)
+
     def _finish(self, result: int, timeout: float) -> int:
         desc = E6_RESULT.get(result, "unknown")
         if result == 0x00:
@@ -314,14 +398,19 @@ class RcspOtaUpdater:
             self._e7_reboot(timeout)
             return result
         if result == 0x80:
-            # Loader stage done (single-bank + loader). The badge arms the loader-boot
-            # and resets INTO the loader only when its BLE link reaches BLE_ST_IDLE with
-            # the update flag set (rcsp_manage.c BLE_ST_IDLE → MSG_JL_UPDATE_START →
-            # update_mode_api_v2(BLE_APP_UPDATA)). So we must DISCONNECT here, NOT send
-            # E7 — E7's handler does a plain cpu_reset() that preempts the arming and the
-            # badge boots the old app. After the disconnect the badge reboots into the
-            # loader and re-advertises; the caller reconnects for pass 2.
-            log.info("E6=0x80: loader downloaded — disconnecting so the badge arms + boots the loader")
-            self.transport.disconnect()
+            # Pass 1 done: the loader is staged. What follows is the relink, and it is
+            # NOT "disconnect and reconnect" — that is what this client used to do, and
+            # it is why an OTA left the unit half-updated and needing a wired restore.
+            #
+            # The reference master (rcsp_update_master.c) and the SuperBand app both do:
+            #   1. send 0x0B {0x00, 0x01} on the STILL-OPEN link
+            #   2. do NOT disconnect — poll until the DEVICE drops the link
+            #   3. the device then waits ~1 s and reboots into the loader
+            # Step 1 is also what populates UPDATA_PARM (exif pointer, BTIF MAC backup,
+            # reserved-area opt-out) for the loader to pick up.
+            log.info("E6=0x80: loader staged — sending 0x0B and waiting for the device "
+                     "to drop the link (NOT disconnecting ourselves)")
+            self.relink_flag = self.switch_communication_way(timeout=6.0)
+            self.wait_for_peripheral_disconnect(timeout=20.0)
             return result
         raise BadgeRejected(f"OTA failed: E6=0x{result:02x} ({desc})")
