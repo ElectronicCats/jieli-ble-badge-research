@@ -13,6 +13,7 @@ import atexit
 import concurrent.futures
 import logging
 import os
+import sys
 import queue
 import signal
 import threading

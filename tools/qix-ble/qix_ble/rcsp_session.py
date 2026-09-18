@@ -274,6 +274,15 @@ class RcspSession:
         param.append(read_num & 0xff)
         param += int(start_index).to_bytes(2, "big")
         param += int(dev_handler).to_bytes(4, "big")
+        # NOTE (open question): JieLi's own firmware source decodes this field with
+        # `browser->path_len = app_ntohs(browser->path_len)` — i.e. BIG-endian, like
+        # start_num and dev_handle just above. But packet 590 of the Day-1 btsnoop of the
+        # OFFICIAL app sends a 1-cluster path as `04 00` = LITTLE-endian (see
+        # tests/test_rcsp_session_browse.py::test_browse_request_body_byte_exact_vs_packet_590).
+        # The capture wins here because it is what the real app does and what the E87
+        # accepted. Unresolved on hardware: with clusters=[] (path_len 0) the two encodings
+        # are identical, and every DG01 browse so far returns zero entries for an unrelated
+        # reason (no browsable device mounted), so neither has been discriminated yet.
         param += int(path_len).to_bytes(2, "little")
         param += path_bytes
 

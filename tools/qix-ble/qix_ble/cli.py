@@ -1068,6 +1068,63 @@ def cmd_patchflash(args) -> int:
     return 0
 
 
+
+JLOTA_TAG = b"JLOTA"
+
+
+def _find_loader(old_mac: str, timeout: float = 40.0) -> str | None:
+    """Locate the OTA loader after the relink.
+
+    Two possibilities, and the published sources disagree on which applies here, so we
+    accept both: (a) the loader replays the app's own advertisement and keeps the same
+    BLE address (JieLi's loader source builds its ADV from the exif block, which we have
+    confirmed IS written on this unit); (b) it comes up on a different address carrying a
+    manufacturer-specific record whose bytes 2..6 reversed spell "JLOTA" and whose bytes
+    8..13 reversed are the OLD address (what the vendor's Android SDK matches on).
+    """
+    import asyncio
+    from bleak import BleakScanner
+
+    want = old_mac.upper()
+    # MEASURED on this hardware: after 0x0B with flag=1 the device writes a SECOND address
+    # into its EXIF block = the base MAC with the low byte incremented, and the loader
+    # advertises on that. Diffing two post-OTA flash dumps at EXIF+0xBA:
+    #   without 0x0B:  c6 97 3f 53 73 5a   (unchanged)
+    #   with    0x0B:  c7 97 3f 53 73 5a   (+1)
+    # The loader's advert is rebuilt from EXIF as `02 01 06 / 05 09 "DG01"` — plain flags
+    # and name, NO manufacturer data — so there is no JLOTA record to match on. Matching
+    # the incremented address is what actually finds it.
+    _o = [int(x, 16) for x in want.split(":")]
+    bumped = ":".join(f"{b:02X}" for b in (_o[:5] + [(_o[5] + 1) & 0xFF]))
+    found: dict[str, str] = {}
+
+    def cb(dev, adv):
+        a = dev.address.upper()
+        if a == bumped:
+            found.setdefault("bumped", dev.address)
+            return
+        if a == want:
+            found.setdefault("same", dev.address)
+            return
+        for _cid, raw in (adv.manufacturer_data or {}).items():
+            if len(raw) >= 14 and raw[2:7][::-1] == JLOTA_TAG:
+                old = ":".join(f"{b:02X}" for b in raw[8:14][::-1])
+                if old == want:
+                    found.setdefault("adv", dev.address)
+
+    async def _scan():
+        s = BleakScanner(detection_callback=cb)
+        await s.start()
+        end = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < end and not found:
+            await asyncio.sleep(0.5)
+        await s.stop()
+
+    asyncio.run(_scan())
+    # bumped first: it is the measured behaviour when 0x0B was acked with flag=1.
+    return found.get("bumped") or found.get("adv") or found.get("same")
+
+
 def cmd_rcsp_flash(args) -> int:
     """Native JieLi RCSP OTA over AE00 (NOT Qix/FD00). For firmwares that do RCSP
     OTA (e.g. the e_badge_707_sdk_200 "EC-BADGE" build).
@@ -1166,25 +1223,56 @@ def cmd_rcsp_flash(args) -> int:
             print("OTA SUCCESS ✓ — the device will reboot into the new firmware 🎉")
             return 0
         if result == 0x80:
-            # Pass 1 done: the app staged the loader and (on our disconnect in
-            # RcspOtaUpdater._finish) armed + rebooted INTO the loader. The loader's GATT
-            # is AE00 only and it has NO SMP — so pass 2 must connect PLAIN: forget the
-            # bond and stop pairing (a stale LTK / a Pair() attempt makes the loader drop
-            # the link → "failed to discover services"). Auth IS still required (the loader
-            # runs the same 6-step handshake). This switch is what makes the apply persist.
-            print(f"loader staged — switching to PLAIN (no-pair) reconnect and waiting "
-                  f"{args.relink_delay:.0f}s for the loader to boot…", file=sys.stderr)
+            # Pass 1 done. rcsp_ota already sent 0x0B and waited for the DEVICE to drop
+            # the link (it no longer disconnects on our side). What is left here is the
+            # reconnect + pass 2, which must NOT re-run E1/E2 — see flash_pass2().
+            #
+            # The loader has no SMP, so connect plain (no pairing, no bond).
+            print(f"loader staged — waiting {args.relink_delay:.0f}s for it to boot…",
+                  file=sys.stderr)
             _stop_agent()
             _os.environ.pop("QIX_PAIR", None)
             _os.environ["QIX_NO_PAIR"] = "1"
-            if sys.platform.startswith("linux"):
-                try:
-                    from qix_ble.bluez_cleanup import remove_device
-                    remove_device(args.mac)
-                except Exception as e:
-                    print(f"bond forget skipped: {e}", file=sys.stderr)
             time.sleep(args.relink_delay)
-            continue
+
+            target = _find_loader(args.mac, timeout=40.0)
+            if target is None:
+                print("could not find the loader advertising — retrying", file=sys.stderr)
+                continue
+            if target != args.mac:
+                print(f"loader is advertising under a DIFFERENT address: {target}",
+                      file=sys.stderr)
+
+            last2 = [-1]
+            def progress2(p: float):
+                pct = int(p * 100)
+                if pct != last2[0]:
+                    print(f"\r  [pass 2] flashing… {pct}%", end="", flush=True)
+                    last2[0] = pct
+            try:
+                with QixTransport(target) as t2:
+                    if not args.no_auth:
+                        AuthSession(t2, step_timeout=args.timeout).do_handshake()
+                        print("[pass 2] auth OK", file=sys.stderr)
+                    up2 = RcspOtaUpdater(t2)
+                    if not up2.looks_like_loader(timeout=args.timeout):
+                        print("[pass 2] attr 9 says this is NOT the loader — aborting "
+                              "rather than re-running E1/E2 against the app",
+                              file=sys.stderr)
+                        return 3
+                    result = up2.flash_pass2(ufw, on_progress=progress2,
+                                             timeout=args.timeout)
+            except (BleConnectionError, QixTimeoutError) as e:
+                print(f"\n[pass 2] {e} — retrying", file=sys.stderr)
+                continue
+            print()
+            desc = E6_RESULT.get(result, "unknown")
+            print(f"[pass 2] result: E6=0x{result:02x} ({desc})")
+            if result == 0x00:
+                print("OTA SUCCESS ✓ — the device will reboot into the new firmware 🎉")
+                return 0
+            print(f"OTA FAILED at E6=0x{result:02x} ({desc})", file=sys.stderr)
+            return 3
         print(f"OTA FAILED at E6=0x{result:02x} ({desc})", file=sys.stderr)
         return 3
 
