@@ -12,6 +12,9 @@ firmware onto a sealed OEM badge over BLE**: no USB, no opening the case, no loa
 > posture is in **[SECURITY.md](SECURITY.md)**.
 
 ---
+## Video Talk
+Talk in youtube
+[Compré un e-badge de 10 dólares y terminé liberando su SDK – Andrés Sabas](https://www.youtube.com/watch?v=auTi_KRarMY)
 
 ## The badge
 
