@@ -12,6 +12,7 @@ import binascii
 import logging
 import struct
 import time
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Protocol
@@ -231,7 +232,8 @@ class QixUpdater:
         #     link-layer ACK wait, app-level flow control via cmd 0xC3 sí espera.
         #   - C2→C3 cycle: ~75ms (vs 175ms con WriteWithResponse + chunk 480).
         # Resultado: 4.5x faster end-to-end vs config conservative anterior.
-        MAX_WIRE_CHUNK = 1024  # bytes de UFW data per Qix frame (sin contar 8B header chunk)
+        # Keep complete Qix frames below the Windows 512-byte write limit.
+        MAX_WIRE_CHUNK = 480 if sys.platform == "win32" else 1024
         self.state = UpdaterState.SENDING_CHUNKS
         offset = offset_pos
         total = len(payload)
